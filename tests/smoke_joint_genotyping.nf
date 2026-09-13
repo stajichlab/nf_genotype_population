@@ -2,6 +2,7 @@
 nextflow.enable.dsl = 2
 include { GATK4_HAPLOTYPECALLER } from '../modules/local/gatk4_haplotypecaller/main.nf'
 include { JOINT_GENOTYPING }      from '../subworkflows/local/joint_genotyping/main.nf'
+include { GATK4_HARDFILTER }      from '../modules/local/gatk4_variantfiltration/main.nf'
 
 def ploidyCodeFor(label) {
     if (label == 'haploid') { return 1 }
@@ -40,4 +41,13 @@ workflow {
     )
 
     JOINT_GENOTYPING.out.vcf_by_population.view()
+
+    GATK4_HARDFILTER(
+        JOINT_GENOTYPING.out.vcf_by_population,
+        ref,
+        ref_fai,
+        ref_dict,
+    )
+
+    GATK4_HARDFILTER.out.vcf.view()
 }
