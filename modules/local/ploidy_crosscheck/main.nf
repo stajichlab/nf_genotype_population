@@ -11,6 +11,6 @@ process PLOIDY_CROSSCHECK {
 
     script:
     """
-    ploidy_crosscheck.py --inferred ${inferred_csv} --metadata ${metadata_txt} --out ploidy_review.csv
+    ${moduleDir}/../../../bin/ploidy_crosscheck.py --inferred ${inferred_csv} --metadata ${metadata_txt} --out ploidy_review.csv
     """
 }

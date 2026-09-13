@@ -1,0 +1,3 @@
+sample	hashtag	species	strain	ploidy	MAT_type	Origin	Environment
+haploid_strain	na	R. mucilaginosa	haploid_strain	haploid	A2
+diploid_strain	na	R. mucilaginosa	diploid_strain	diploid	A1/A2
