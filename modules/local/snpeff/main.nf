@@ -41,6 +41,7 @@ process SNPEFF_ANNOTATE {
     // debugging the Task 12 smoke test). Resolve to an absolute, symlink-free
     // path with `readlink -f` before invoking snpEff.
     """
+    set -euo pipefail
     db_dir=\$(readlink -f ${snpeff_db_dir})
     snpEff -c \${db_dir}/snpEff.config -dataDir \${db_dir}/data ${snpeff_genome_name} ${vcf} | bgzip > ${population}.annotated.vcf.gz
     tabix -p vcf ${population}.annotated.vcf.gz
