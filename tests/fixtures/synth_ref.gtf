@@ -1,0 +1,13 @@
+# tests/fixtures/synth_ref.gtf
+#
+# SYNTHETIC-ONLY test scaffolding for Task 12's SNPEFF_ANNOTATE smoke test.
+# This is NOT a real annotation of tests/fixtures/ref.fa - it is a single
+# trivial gene model spanning most of synth_contig1 (2000bp), just so
+# SnpEff has something to build a database against and annotate variants
+# with. Do not use for anything other than the smoke test.
+synth_contig1	synthetic	gene	10	1990	.	+	.	gene_id "synthGene1"; transcript_id ""; gene_biotype "protein_coding";
+synth_contig1	synthetic	transcript	10	1990	.	+	.	gene_id "synthGene1"; transcript_id "synthGene1-T1"; gene_biotype "protein_coding"; transcript_biotype "mRNA";
+synth_contig1	synthetic	exon	10	1990	.	+	.	gene_id "synthGene1"; transcript_id "synthGene1-T1";
+synth_contig1	synthetic	CDS	10	1989	.	+	0	gene_id "synthGene1"; transcript_id "synthGene1-T1";
+synth_contig1	synthetic	start_codon	10	12	.	+	0	gene_id "synthGene1"; transcript_id "synthGene1-T1";
+synth_contig1	synthetic	stop_codon	1987	1989	.	+	0	gene_id "synthGene1"; transcript_id "synthGene1-T1";
