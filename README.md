@@ -102,7 +102,7 @@ ignored.
 - **population_sets** (default: `assets/population_sets.yaml`): YAML defining named sub-population groups (Phase 2). The built-in `all` group is **not** read from this file; it is derived at runtime from every strain that produced a GVCF, and an `all` key in the YAML is ignored.
 - **snpeff_db_dir** (required for Phase 2 only): Directory containing SnpEff database files.
 - **snpeff_genome_name** (required for Phase 2 only): SnpEff genome database name (e.g., `RmucDH4148`).
-- **outdir** (default: `results`): Output directory for results.
+- **outdir** (default: `${launchDir}/results`, i.e. `results` relative to wherever you run `nextflow run` from): Output directory for results.
 
 ### SnpEff Database
 

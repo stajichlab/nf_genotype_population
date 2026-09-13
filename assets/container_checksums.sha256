@@ -19,7 +19,7 @@
 #
 # Permissions note: the two GATK/snpEff .img files were mode 0775
 # (group-writable by group `stajichlab`) at review time and were tightened to
-# 0755 in this fix round. bcftools_samtools-1.24.sif was already 0750.
+# 0750 in this fix round. bcftools_samtools-1.24.sif was already 0750.
 
 7ceb30cffe1ca00f65b38cfd76d31c20972a82a45871cca4f1d5ddb182b38f1d  bcftools_samtools-1.24.sif
 9a8c2b717d7656c7cc88f2007078043e1d2537bd385b289ff781933600494151  depot.galaxyproject.org-singularity-broadinstitute-gatk-4.5.0.0.img
