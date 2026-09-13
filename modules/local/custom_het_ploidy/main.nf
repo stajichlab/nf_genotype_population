@@ -2,7 +2,11 @@
 process CUSTOM_HET_PLOIDY {
     tag "$strain"
     label 'process_low'
-    container 'https://depot.galaxyproject.org/singularity/mulled-v2-b24619740583784f45c6a755710ce30d3e160639:1f6b1b8b7a2df34bea1c43f12a5c4db9c9f10fc3-0'
+    // Local project-provided container (bcftools 1.24, samtools 1.24, python 3.14.7) -
+    // a direct local .sif file path, so no docker:// pull is ever attempted at all
+    // (sidesteps a singularity-ce 3.9.3 pull bug hit while testing the previous
+    // mulled-container reference, see Task 8's report).
+    container '/bigdata/stajichlab/shared/singularity_cache/bcftools_samtools-1.24.sif'
 
     input:
     tuple val(strain), path(cram), path(crai)
@@ -13,7 +17,16 @@ process CUSTOM_HET_PLOIDY {
     tuple val(strain), path("${strain}.ploidy_inference.csv"), emit: csv
 
     script:
+    // This project's process.shell = ['/bin/bash', '-l'] (needed elsewhere for HPCC
+    // module-loading) invokes a LOGIN shell inside the container too. This container's
+    // own /etc/profile resets PATH to a bare system default in login-shell mode,
+    // clobbering the conda env (bcftools/samtools/python 3.14) that Singularity's own
+    // env-file sourcing had already set up correctly for non-login invocations
+    // (verified by direct reproduction: PATH differs between `bash -c` and `bash -lc`
+    // inside this exact container). Prepend the conda env's bin dir explicitly so this
+    // process doesn't depend on shell-login ordering at all.
     """
+    export PATH="/opt/conda/envs/bcftools_samtools/bin:\$PATH"
     ${moduleDir}/../../../bin/custom_het_ploidy.py \\
         --cram ${cram} \\
         --reference ${reference} \\
