@@ -31,11 +31,29 @@
 # combined pool back to the single reference. This produces a genuine ~50/50
 # read depth split at each mutated site -- true heterozygous (0/1) signal
 # when force-called at ploidy 2.
+#
+# haploid_strain needed a second fix: the first version simulated it purely
+# from the unmutated reference (-r 0, no divergence at all), so
+# `bcftools call -mv` on it produced ZERO variant records (not zero het
+# records among some calls - literally no calls at all, since `-v` only
+# emits variant sites). That meant custom_het_ploidy.py's het-fraction
+# computation saw n_sites=0 and returned "unknown", never exercising the
+# "classify as haploid" code path at all. Fix: introduce a THIRD haplotype
+# FASTA, hapC.fa (~0.5-1% SNPs, different seed/positions than hapB), and
+# simulate the *entire* haploid_strain read set from hapC.fa alone (single
+# template, not pooled with unmutated ref.fa reads - unlike the diploid case
+# above, which deliberately pools two templates). Every read then comes from
+# the one mutated template, so hapC/ref divergence sites show 100%
+# alt-supporting reads when mapped back to ref.fa - i.e. homozygous-alt
+# (1/1) calls, zero heterozygosity, but n_sites > 0 so the classifier has
+# real data and correctly reports "haploid".
 set -euo pipefail
 cd "$(dirname "$0")"
 
 # 2kb synthetic single-contig reference, deterministic (seeded), plus a
-# second haplotype (hapB) carrying ~1% SNPs at deterministic positions.
+# second haplotype (hapB, for the diploid fixture) and a third haplotype
+# (hapC, for the haploid fixture) each carrying a small independent set of
+# deterministic seeded SNPs at different positions.
 /usr/bin/python3.12 - <<'PY'
 import random
 
@@ -46,20 +64,37 @@ with open("ref.fa", "w") as fh:
     for i in range(0, len(seq), 60):
         fh.write(seq[i:i + 60] + "\n")
 
-# Haplotype B: independent seed, ~1% SNP rate, always substitutes to a
-# different base than the reference at each chosen site.
-random.seed(43)
 bases = "ACGT"
-seqB = list(seq)
-for i in range(len(seqB)):
-    if random.random() < 0.01:
-        ref_b = seqB[i]
-        seqB[i] = random.choice([b for b in bases if b != ref_b])
-seqB = "".join(seqB)
+
+
+def mutate(seq, seed, rate):
+    random.seed(seed)
+    out = list(seq)
+    for i in range(len(out)):
+        if random.random() < rate:
+            ref_b = out[i]
+            out[i] = random.choice([b for b in bases if b != ref_b])
+    return "".join(out)
+
+
+# Haplotype B: independent seed, ~1% SNP rate, always substitutes to a
+# different base than the reference at each chosen site. Used (pooled with
+# unmutated hapA reads) to build the diploid fixture.
+seqB = mutate(seq, seed=43, rate=0.01)
 with open("hapB.fa", "w") as fh:
     fh.write(">synth_contig1\n")
     for i in range(0, len(seqB), 60):
         fh.write(seqB[i:i + 60] + "\n")
+
+# Haplotype C: independent seed/rate (~0.5%), different positions than
+# hapB. Used ALONE (not pooled with unmutated ref reads) to build the
+# haploid fixture, so it has real homozygous-alt divergence from ref.fa
+# (n_sites > 0) but zero heterozygosity.
+seqC = mutate(seq, seed=44, rate=0.005)
+with open("hapC.fa", "w") as fh:
+    fh.write(">synth_contig1\n")
+    for i in range(0, len(seqC), 60):
+        fh.write(seqC[i:i + 60] + "\n")
 PY
 samtools faidx ref.fa
 rm -f ref.dict
@@ -67,10 +102,16 @@ gatk CreateSequenceDictionary -R ref.fa -O ref.dict 2>/dev/null || \
     picard CreateSequenceDictionary R=ref.fa O=ref.dict
 bwa-mem2 index ref.fa
 
-# Haploid strain: simulate reads from the reference itself (-r 0: no
-# injected mutations at all), so heterozygosity should be ~0.
+# Haploid strain: simulate ALL reads from hapC.fa alone (single mutated
+# template, not pooled with unmutated ref.fa reads), then map to ref.fa.
+# Every read carries hapC's alleles, so hapC/ref divergence sites show
+# 100% alt-supporting reads when mapped back -- homozygous-alt (1/1) calls,
+# zero heterozygosity, but n_sites > 0 (real SNP calls exist to compute a
+# het_fraction from) so the ploidy classifier actually has data to work
+# with instead of "unknown".
+bwa-mem2 index hapC.fa
 wgsim -N 2000 -1 100 -2 100 -r 0 -e 0.001 -S 42 \
-    ref.fa haploid_strain.read1.fq haploid_strain.read2.fq
+    hapC.fa haploid_strain.read1.fq haploid_strain.read2.fq
 bwa-mem2 mem ref.fa haploid_strain.read1.fq haploid_strain.read2.fq \
     | samtools sort -O cram --reference ref.fa -o haploid_strain.cram -
 samtools index haploid_strain.cram
@@ -92,6 +133,6 @@ bwa-mem2 mem ref.fa diploid_strain.read1.fq diploid_strain.read2.fq \
     | samtools sort -O cram --reference ref.fa -o diploid_strain.cram -
 samtools index diploid_strain.cram
 
-rm -f *.read1.fq *.read2.fq *.mutations.txt hapB.fa hapB.fa.* \
+rm -f *.read1.fq *.read2.fq *.mutations.txt hapB.fa hapB.fa.* hapC.fa hapC.fa.* \
     ref.fa.amb ref.fa.ann ref.fa.bwt.2bit.64 ref.fa.pac ref.fa.0123
 echo "Fixtures written to $(pwd)"
