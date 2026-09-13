@@ -2,10 +2,12 @@
 process CUSTOM_HET_PLOIDY {
     tag "$strain"
     label 'process_low'
-    // Local project-provided container (bcftools 1.24, samtools 1.24, python 3.14.7) -
-    // a direct local .sif file path, so no docker:// pull is ever attempted at all
-    // (sidesteps a singularity-ce 3.9.3 pull bug hit while testing the previous
-    // mulled-container reference, see Task 8's report).
+    // Local project-provided container (bcftools 1.24, samtools 1.24, python 3.14.7).
+    // Source: ghcr.io/hyphaltip/container_bcftools_samtools/bcftools_samtools:1.24
+    // Referenced here as a direct local .sif file path (pre-pulled to the shared cache)
+    // so no docker:// pull is ever attempted at pipeline runtime (sidesteps a
+    // singularity-ce 3.9.3 pull bug hit while testing an earlier mulled-container
+    // reference, see Task 8's report).
     container '/bigdata/stajichlab/shared/singularity_cache/bcftools_samtools-1.24.sif'
 
     input:
