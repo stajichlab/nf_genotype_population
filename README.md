@@ -17,7 +17,7 @@ Run the PLOIDY_ONLY entry point to infer ploidy per strain and generate a human-
 
 ```bash
 NXF_SYNTAX_PARSER=v1 nextflow run main.nf -entry PLOIDY_ONLY \
-    --cram_dir /path/to/sarek/results/preprocessing/*/*.cram \
+    --cram_dir /path/to/flat_cram_dir \
     --reference /path/to/refgenome/GCA_058775505.1_UCR_RmucDH4148_1.0_genomic.fna \
     --reference_fai /path/to/refgenome/GCA_058775505.1_UCR_RmucDH4148_1.0_genomic.fna.fai \
     --metadata /path/to/metadata.txt
@@ -35,7 +35,7 @@ This produces `results/ploidy_review.csv`, with columns `strain`, `inferred_ploi
 
 ```bash
 nextflow run main.nf -profile hpcc \
-    --cram_dir /path/to/sarek/results/preprocessing/*/*.cram \
+    --cram_dir /path/to/flat_cram_dir \
     --reference /path/to/refgenome/GCA_058775505.1_UCR_RmucDH4148_1.0_genomic.fna \
     --reference_fai /path/to/refgenome/GCA_058775505.1_UCR_RmucDH4148_1.0_genomic.fna.fai \
     --reference_dict /path/to/refgenome/GCA_058775505.1_UCR_RmucDH4148_1.0_genomic.dict \
@@ -50,7 +50,13 @@ This produces `results/all.annotated.vcf.gz` (note: its `.tbi` index is not curr
 
 ### Parameters
 
-- **cram_dir** (required): Directory containing CRAM files and index files from Sarek preprocessing (e.g., `/path/to/sarek/results/preprocessing/*/*.cram`).
+- **cram_dir** (required): A FLAT directory containing `<strain>.cram`/`<strain>.cram.crai` pairs directly (no subdirectories — `buildCramCh()` in `main.nf` globs `${cram_dir}/*.cram{,.crai}`, one level only). **Known Phase 1 limitation**: Sarek's own output is nested per-sample (`results/preprocessing/markduplicates/<strain>/<strain>.md.cram`), so it cannot be pointed at directly yet. Flatten it into a single directory first, e.g.:
+  ```bash
+  mkdir -p flat_cram_dir
+  find /path/to/sarek/results/preprocessing/markduplicates -name '*.md.cram*' \
+      -exec sh -c 'ln -s "$1" "flat_cram_dir/$(basename "$1" | sed "s/\.md//")"' _ {} \;
+  ```
+  (renames `<strain>.md.cram` → `<strain>.cram` and `<strain>.md.cram.crai` → `<strain>.cram.crai` via symlinks, matching the strain-name key `buildCramCh()` derives from the filename). Supporting Sarek's nested layout directly (e.g. a recursive glob) is a good candidate for a small follow-up fix, not yet done.
 - **reference** (required for both phases): Reference genome FASTA file.
 - **reference_fai** (required for both phases): Reference genome FAI index file.
 - **reference_dict** (required for Phase 2 only): Reference genome GATK sequence dictionary file (`.dict`).
