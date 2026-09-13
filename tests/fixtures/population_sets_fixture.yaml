@@ -1,0 +1,3 @@
+all:
+  - haploid_strain
+  - diploid_strain
