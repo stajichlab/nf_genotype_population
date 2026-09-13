@@ -46,7 +46,7 @@ nextflow run main.nf -profile hpcc \
     --snpeff_genome_name RmucDH4148
 ```
 
-This produces `results/all.annotated.vcf.gz` (and its `.tbi` index).
+This produces `results/all.annotated.vcf.gz` (note: its `.tbi` index is not currently published to `results/` — regenerate with `tabix -p vcf results/all.annotated.vcf.gz` if needed).
 
 ### Parameters
 
@@ -68,7 +68,7 @@ A pre-built SnpEff database for R. mucilaginosa DH4148 is available at:
 /bigdata/stajichlab/shared/lib/snpeff_db/RmucDH4148
 ```
 
-Use `--snpeff_db_dir /bigdata/stajichlab/shared/lib/snpeff_db` and `--snpeff_genome_name RmucDH4148` for real production runs.
+Use `--snpeff_db_dir /bigdata/stajichlab/shared/lib/snpeff_db/RmucDH4148` and `--snpeff_genome_name RmucDH4148` for real production runs.
 
 ## Phase 2+ (not yet implemented)
 
