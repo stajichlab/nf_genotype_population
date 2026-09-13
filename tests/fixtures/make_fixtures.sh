@@ -50,6 +50,26 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Read-group fix (Task 9, 2026-09-12): the original bwa-mem2 mem invocations
+# below did not pass -R, so the CRAMs had no @RG/SM tag at all. That was
+# invisible to custom_het_ploidy.py (Task 8, works directly off pileups) but
+# broke GATK4_HAPLOTYPECALLER's -ERC GVCF mode, which requires GATK to
+# resolve exactly one sample name from the input: "A USER ERROR has
+# occurred: Argument emit-ref-confidence has a bad value: Can only be used
+# in single sample mode currently." Fixed by adding -R '@RG\tID:...\tSM:...'
+# to each bwa-mem2 mem call below. The already-checked-in CRAMs were patched
+# in place with `samtools addreplacerg` rather than re-simulated, to avoid
+# disturbing the carefully tuned haplotype/depth design documented below;
+# this script is updated too so a from-scratch regeneration matches.
+#
+# CRAM-version fix (same task): samtools 1.24's default CRAM output is
+# version 3.1, which GATK 4.5.0.0's bundled htsjdk (4.1.0) cannot read
+# ("java.lang.RuntimeException: CRAM version 3.1 is not supported"). Fixed
+# by writing CRAM version 3.0 explicitly (-O cram,version=3.0). The
+# already-checked-in CRAMs were downgraded in place with
+# `samtools view -O cram,version=3.0 ...`; this script now writes 3.0 from
+# the start.
+
 # 2kb synthetic single-contig reference, deterministic (seeded), plus a
 # second haplotype (hapB, for the diploid fixture) and a third haplotype
 # (hapC, for the haploid fixture) each carrying a small independent set of
@@ -112,8 +132,9 @@ bwa-mem2 index ref.fa
 bwa-mem2 index hapC.fa
 wgsim -N 2000 -1 100 -2 100 -r 0 -e 0.001 -S 42 \
     hapC.fa haploid_strain.read1.fq haploid_strain.read2.fq
-bwa-mem2 mem ref.fa haploid_strain.read1.fq haploid_strain.read2.fq \
-    | samtools sort -O cram --reference ref.fa -o haploid_strain.cram -
+bwa-mem2 mem -R '@RG\tID:haploid_strain\tSM:haploid_strain\tPL:ILLUMINA\tLB:lib1' \
+    ref.fa haploid_strain.read1.fq haploid_strain.read2.fq \
+    | samtools sort -O cram,version=3.0 --reference ref.fa -o haploid_strain.cram -
 samtools index haploid_strain.cram
 
 # Diploid strain: simulate half the read pairs from haplotype A (the
@@ -129,8 +150,9 @@ wgsim -N 1000 -1 100 -2 100 -r 0 -e 0.001 -S 43 \
     hapB.fa diploid_hapB.read1.fq diploid_hapB.read2.fq
 cat diploid_hapA.read1.fq diploid_hapB.read1.fq > diploid_strain.read1.fq
 cat diploid_hapA.read2.fq diploid_hapB.read2.fq > diploid_strain.read2.fq
-bwa-mem2 mem ref.fa diploid_strain.read1.fq diploid_strain.read2.fq \
-    | samtools sort -O cram --reference ref.fa -o diploid_strain.cram -
+bwa-mem2 mem -R '@RG\tID:diploid_strain\tSM:diploid_strain\tPL:ILLUMINA\tLB:lib1' \
+    ref.fa diploid_strain.read1.fq diploid_strain.read2.fq \
+    | samtools sort -O cram,version=3.0 --reference ref.fa -o diploid_strain.cram -
 samtools index diploid_strain.cram
 
 rm -f *.read1.fq *.read2.fq *.mutations.txt hapB.fa hapB.fa.* hapC.fa hapC.fa.* \
