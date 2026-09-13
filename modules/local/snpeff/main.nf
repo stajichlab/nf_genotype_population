@@ -2,16 +2,12 @@
 process SNPEFF_ANNOTATE {
     tag "$population"
     label 'process_low'
-    // Local project-provided container: mulled combo of snpeff=5.2,tabix=1.11
-    // from Galaxy's depot (this is NOT the plain snpeff:5.2--hdfd78af_1
-    // biocontainer - that image was checked and has neither bgzip nor tabix,
-    // and this module's script pipes snpEff output through bgzip then runs
-    // tabix). Pre-pulled to the shared cache and confirmed to have snpEff
-    // 5.2, bgzip, and tabix all present and working under this project's
-    // login-shell process.shell.
-    // Source: docker://quay.io/biocontainers/mulled-v2-2fe536b56916bd1d61a6a1889eb2987d9ea0cd2f:c51b2e46bf63786b2d9a7a7d23680791163ab39a-0
-    // (Galaxy depot equivalent: depot.galaxyproject.org/singularity/mulled-v2-2fe536b56916bd1d61a6a1889eb2987d9ea0cd2f:c51b2e46bf63786b2d9a7a7d23680791163ab39a-0)
-    container '/bigdata/stajichlab/shared/lib/singularity_cache/depot.galaxyproject.org-singularity-mulled-v2-2fe536b56916bd1d61a6a1889eb2987d9ea0cd2f-c51b2e46bf63786b2d9a7a7d23680791163ab39a-0.img'
+    // FINAL-REVIEW I2: the container is now declared centrally in
+    // conf/modules.config (spec §5). It is a mulled combo of snpeff=5.2 and
+    // tabix=1.11 from Galaxy's depot - NOT the plain snpeff:5.2--hdfd78af_1
+    // biocontainer, which was checked and has neither bgzip nor tabix, both of
+    // which this module's script needs (it pipes snpEff output through bgzip
+    // and then runs tabix). conf/modules.config records the upstream source.
 
     input:
     tuple val(population), path(vcf), path(tbi)
@@ -42,8 +38,8 @@ process SNPEFF_ANNOTATE {
     // path with `readlink -f` before invoking snpEff.
     """
     set -euo pipefail
-    db_dir=\$(readlink -f ${snpeff_db_dir})
-    snpEff -c \${db_dir}/snpEff.config -dataDir \${db_dir}/data ${snpeff_genome_name} ${vcf} | bgzip > ${population}.annotated.vcf.gz
-    tabix -p vcf ${population}.annotated.vcf.gz
+    db_dir=\$(readlink -f "${snpeff_db_dir}")
+    snpEff -c "\${db_dir}/snpEff.config" -dataDir "\${db_dir}/data" "${snpeff_genome_name}" "${vcf}" | bgzip > "${population}.annotated.vcf.gz"
+    tabix -p vcf "${population}.annotated.vcf.gz"
     """
 }

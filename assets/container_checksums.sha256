@@ -1,0 +1,26 @@
+# assets/container_checksums.sha256
+#
+# FINAL-REVIEW M3/I2. sha256 checksums of the exact local container images this
+# pipeline executes, as recorded on 2026-09-13. Nothing previously recorded any
+# digest or checksum for them, so a silent in-place replacement of the binaries
+# the pipeline runs would have been undetectable.
+#
+# These are checksums of the LOCAL .sif/.img files, NOT upstream registry
+# manifest digests. `singularity inspect --json` on all three does not expose
+# the upstream digest; recovering those needs a registry API call and remains a
+# tracked follow-up (see conf/modules.config).
+#
+# Verify with:
+#   cd /bigdata/stajichlab/shared/singularity_cache
+#   sha256sum -c /path/to/assets/container_checksums.sha256
+#
+# Paths are relative to the shared image store
+# (params.singularity_cache_dir = /bigdata/stajichlab/shared/singularity_cache).
+#
+# Permissions note: the two GATK/snpEff .img files were mode 0775
+# (group-writable by group `stajichlab`) at review time and were tightened to
+# 0755 in this fix round. bcftools_samtools-1.24.sif was already 0750.
+
+7ceb30cffe1ca00f65b38cfd76d31c20972a82a45871cca4f1d5ddb182b38f1d  bcftools_samtools-1.24.sif
+9a8c2b717d7656c7cc88f2007078043e1d2537bd385b289ff781933600494151  depot.galaxyproject.org-singularity-broadinstitute-gatk-4.5.0.0.img
+365d260f75c140fd74d8d7f33f9c45a1c683ae88344f4d37db46df518b46cf99  depot.galaxyproject.org-singularity-mulled-v2-2fe536b56916bd1d61a6a1889eb2987d9ea0cd2f-c51b2e46bf63786b2d9a7a7d23680791163ab39a-0.img

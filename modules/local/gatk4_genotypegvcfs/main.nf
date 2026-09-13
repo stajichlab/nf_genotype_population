@@ -2,9 +2,9 @@
 process GATK4_GENOTYPEGVCFS {
     tag "$population"
     label 'process_medium'
-    // Local project-provided container (GATK 4.5.0.0). See
-    // GATK4_GENOMICSDBIMPORT / GATK4_HAPLOTYPECALLER for the pre-pull rationale.
-    container '/bigdata/stajichlab/shared/lib/singularity_cache/depot.galaxyproject.org-singularity-broadinstitute-gatk-4.5.0.0.img'
+    // FINAL-REVIEW I2: container (GATK 4.5.0.0) declared centrally in
+    // conf/modules.config (spec §5). See GATK4_GENOMICSDBIMPORT /
+    // GATK4_HAPLOTYPECALLER for the pre-pull rationale.
 
     input:
     tuple val(population), path(genomicsdb)
@@ -16,10 +16,14 @@ process GATK4_GENOTYPEGVCFS {
     tuple val(population), path("${population}.vcf.gz"), path("${population}.vcf.gz.tbi"), emit: vcf
 
     script:
+    // FINAL-REVIEW I5: cap the JVM heap at ~80% of this task's granted memory
+    // (see GATK4_HAPLOTYPECALLER for the full rationale).
+    def xmx = (task.memory.toGiga() * 0.8) as int
     """
-    gatk GenotypeGVCFs \\
-        -R ${reference} \\
-        -V gendb://${genomicsdb} \\
-        -O ${population}.vcf.gz
+    set -euo pipefail
+    gatk --java-options "-Xmx${xmx}g" GenotypeGVCFs \\
+        -R "${reference}" \\
+        -V "gendb://${genomicsdb}" \\
+        -O "${population}.vcf.gz"
     """
 }

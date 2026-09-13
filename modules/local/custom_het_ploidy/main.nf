@@ -2,13 +2,12 @@
 process CUSTOM_HET_PLOIDY {
     tag "$strain"
     label 'process_low'
-    // Local project-provided container (bcftools 1.24, samtools 1.24, python 3.14.7).
-    // Source: ghcr.io/hyphaltip/container_bcftools_samtools/bcftools_samtools:1.24
-    // Referenced here as a direct local .sif file path (pre-pulled to the shared cache)
-    // so no docker:// pull is ever attempted at pipeline runtime (sidesteps a
-    // singularity-ce 3.9.3 pull bug hit while testing an earlier mulled-container
-    // reference, see Task 8's report).
-    container '/bigdata/stajichlab/shared/singularity_cache/bcftools_samtools-1.24.sif'
+    // FINAL-REVIEW I2: container (bcftools 1.24, samtools 1.24, python 3.14.7)
+    // declared centrally in conf/modules.config (spec §5), which records the
+    // upstream source
+    // docker://ghcr.io/hyphaltip/container_bcftools_samtools/bcftools_samtools:1.24
+    // and why a pre-pulled local image is used instead of a runtime docker://
+    // pull (sidesteps a singularity-ce 3.9.3 pull bug hit in Task 8).
 
     input:
     tuple val(strain), path(cram), path(crai)
@@ -27,12 +26,30 @@ process CUSTOM_HET_PLOIDY {
     // (verified by direct reproduction: PATH differs between `bash -c` and `bash -lc`
     // inside this exact container). Prepend the conda env's bin dir explicitly so this
     // process doesn't depend on shell-login ordering at all.
+    //
+    // FINAL-REVIEW I7: prefer ${projectDir}/bin, fall back to the module-relative
+    // path.
+    //
+    // projectDir is the right anchor for a real pipeline run (it resolves to the
+    // directory of the entry script, i.e. the repo root for main.nf) and does not
+    // depend on how deep this module sits in the tree. But projectDir is
+    // entrypoint-dependent: it was MEASURED during this fix round that running
+    // `nextflow run tests/smoke_custom_het_ploidy.nf` sets projectDir to
+    // <repo>/tests, where no bin/ exists - which is also why the smoke tests
+    // address their fixtures as ${projectDir}/../tests/fixtures. A bare
+    // ${projectDir}/bin form therefore breaks every module-level smoke test.
+    //
+    // So: use projectDir when it actually contains bin/ (the production case),
+    // and otherwise fall back to this module's own known location in the tree
+    // (the test-entrypoint case). Both branches were exercised and verified.
+    def bin_dir = file("${projectDir}/bin").exists() ? "${projectDir}/bin" : "${moduleDir}/../../../bin"
     """
+    set -euo pipefail
     export PATH="/opt/conda/envs/bcftools_samtools/bin:\$PATH"
-    ${moduleDir}/../../../bin/custom_het_ploidy.py \\
-        --cram ${cram} \\
-        --reference ${reference} \\
-        --strain ${strain} \\
-        --out ${strain}.ploidy_inference.csv
+    ${bin_dir}/custom_het_ploidy.py \\
+        --cram "${cram}" \\
+        --reference "${reference}" \\
+        --strain "${strain}" \\
+        --out "${strain}.ploidy_inference.csv"
     """
 }

@@ -2,13 +2,9 @@
 process GATK4_GENOMICSDBIMPORT {
     tag "$population"
     label 'process_medium'
-    // Local project-provided container (GATK 4.5.0.0).
-    // Source: docker://broadinstitute/gatk:4.5.0.0, pulled via
-    // depot.galaxyproject.org/singularity/broadinstitute/gatk:4.5.0.0
-    // Referenced here as a direct local .sif/.img file path (pre-pulled to the
-    // shared cache) so no docker:// pull is ever attempted at pipeline runtime
-    // (same rationale as GATK4_HAPLOTYPECALLER, see Task 9's report).
-    container '/bigdata/stajichlab/shared/lib/singularity_cache/depot.galaxyproject.org-singularity-broadinstitute-gatk-4.5.0.0.img'
+    // FINAL-REVIEW I2: container (GATK 4.5.0.0) declared centrally in
+    // conf/modules.config (spec §5), which records the upstream
+    // docker://broadinstitute/gatk:4.5.0.0 source and the pre-pull rationale.
 
     input:
     tuple val(population), path(gvcfs), path(tbis)
@@ -21,13 +17,24 @@ process GATK4_GENOMICSDBIMPORT {
     tuple val(population), path("${population}_gdb"), emit: genomicsdb
 
     script:
-    def gvcf_args = gvcfs.collect { "-V ${it}" }.join(' ')
+    // FINAL-REVIEW C1 (defence in depth): JOINT_GENOTYPING already refuses to
+    // build a population with no GVCFs, so this should be unreachable. Kept as
+    // a guard because GATK's own error for a zero-`-V` command line is an
+    // opaque usage dump.
+    if (!gvcfs) {
+        error "GATK4_GENOMICSDBIMPORT received zero GVCFs for population '${population}'; refusing to invoke GATK with an empty -V list."
+    }
+    def gvcf_args = gvcfs.collect { "-V \"${it}\"" }.join(' ')
+    // FINAL-REVIEW I5: cap the JVM heap at ~80% of this task's granted memory
+    // (see GATK4_HAPLOTYPECALLER for the full rationale).
+    def xmx = (task.memory.toGiga() * 0.8) as int
     """
-    gatk GenomicsDBImport \\
+    set -euo pipefail
+    gatk --java-options "-Xmx${xmx}g" GenomicsDBImport \\
         ${gvcf_args} \\
-        --genomicsdb-workspace-path ${population}_gdb \\
+        --genomicsdb-workspace-path "${population}_gdb" \\
         --genomicsdb-shared-posixfs-optimizations true \\
         --bypass-feature-reader \\
-        -L ${intervals}
+        -L "${intervals}"
     """
 }
