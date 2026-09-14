@@ -17,27 +17,46 @@ There is no published, verified threshold (in this project) for converting
 "diploid fits best, with delta X" into a confident haploid-vs-diploid call
 for a fungal organism, which is what this project actually needs.
 
-This script therefore does NOT invent a threshold. It reports all three raw
-delta values and picks whichever of the three fixed models has the lowest
-delta as `best_fit_model`, but maps to a binary ploidy call ONLY when the
-diploid model's delta is very small in absolute terms (a strong, unambiguous
-fit - see MAX_CONFIDENT_DIPLOID_DELTA below) and clearly better than the
-alternatives; every other case is reported as "unknown" rather than guessed.
-This threshold is a conservative placeholder, not a validated one - it
-should be calibrated against strains with independently confirmed ploidy
-(e.g. flow cytometry) before being trusted, exactly as nQuack's own
-documentation insists for its own models. Until then, treat "unknown" calls
-as the honest answer, not a bug.
+REVISION HISTORY, both changes driven by real data, not guesses:
+
+1. An earlier version of this function used a fixed absolute cutoff
+   (MAX_CONFIDENT_DIPLOID_DELTA = 0.05) on the diploid delta to decide
+   "confident enough to call diploid". Running this against 6 REAL DH4148
+   CRAMs (not the synthetic test fixtures) showed the delta magnitude is
+   NOT a normalized confidence score - it scales with the number of
+   informative sites, and came back in the hundreds to tens-of-thousands
+   for every real strain (e.g. 453.6, 6025.1, 12768.8). An absolute
+   threshold of 0.05 therefore rejected every single real strain as
+   "unknown" - it was unusable on real data. That threshold has been
+   removed.
+
+2. In its place, this function now uses ONLY `best_fit_model` (which of
+   diploid/triploid/tetraploid nQuire's lrdmodel scored lowest,
+   i.e. best) - not any delta magnitude. In a 6-strain real-data pilot
+   (3 metadata-haploid, 3 metadata-diploid DH4148 strains), best_fit_model
+   perfectly separated the two groups: all 3 diploid-by-metadata strains
+   had best_fit_model == "diploid"; all 3 haploid-by-metadata strains had
+   best_fit_model == "tetraploid" (nQuire, lacking a haploid model,
+   apparently defaults to its most extreme available model for haploid
+   input). n=6 is FAR too small to validate this as a general rule - it is
+   reported here as an observed pattern from real data, not a proven one.
+
+Given (2), this script maps best_fit_model == "diploid" to inferred_ploidy
+"diploid", and best_fit_model in {"triploid", "tetraploid"} to
+"non_diploid" - deliberately NOT "haploid": nQuire never tests a haploid
+model, so calling a tetraploid-best-fit result "haploid" would be an
+unsupported leap dressed up as a direct measurement. "non_diploid" says
+exactly what was actually observed (this sample did not fit the diploid
+model) and leaves the haploid interpretation to whoever reviews the result
+alongside other evidence (e.g. custom_het_script's independent inference,
+metadata). Degenerate/uninformative lrdmodel output (see
+call_ploidy_from_deltas below) still maps to "unknown".
 """
 import argparse
 import os
 import shutil
 import subprocess
 import tempfile
-
-# Placeholder pending real calibration - see module docstring. Deliberately
-# conservative (only very confident diploid fits are called diploid).
-MAX_CONFIDENT_DIPLOID_DELTA = 0.05
 
 
 def convert_cram_to_bam(cram, reference, out_bam):
@@ -94,11 +113,12 @@ def parse_lrdmodel_output(lrdmodel_stdout):
 def call_ploidy_from_deltas(deltas):
     """Return (inferred_ploidy, best_fit_model) from nQuire's raw deltas.
 
-    See the module docstring: this is a conservative placeholder, not a
-    validated rule. Only a strong, unambiguous diploid fit is called
-    "diploid"; everything else (including a clear triploid/tetraploid best
-    fit, which would itself be biologically surprising for this organism and
-    worth manual review) is reported as "unknown" rather than guessed.
+    See the module docstring for the two real-data-driven revisions this
+    function has been through. Current rule: best_fit_model == "diploid" ->
+    "diploid"; best_fit_model in {"triploid", "tetraploid"} -> "non_diploid"
+    (deliberately not "haploid" - nQuire never tests a haploid model, so that
+    would be an unvalidated leap). Based on only a 6-strain real-data pilot -
+    treat as an observed pattern, not a proven rule.
 
     CONFIRMED FAILURE MODE (found by running the real haploid test fixture,
     not hypothesised): a sample with too few informative sites for `create`/
@@ -107,10 +127,10 @@ def call_ploidy_from_deltas(deltas):
     haploid model - makes `lrdmodel` report all three fixed-model deltas as
     identical (observed: 0.000000/0.000000/0000000 for the haploid fixture).
     That is degenerate output (lrdmodel could not distinguish any fixed model
-    from the free model), not a confident diploid fit, so it must be rejected
-    before the MAX_CONFIDENT_DIPLOID_DELTA check below, not accepted by it.
-    NaN values (also observed, on the tiny diploid fixture) are handled the
-    same way for the same reason: no real information to call from.
+    from the free model, i.e. zero information), not a valid best fit, so it
+    is rejected as "unknown" rather than mapped to any model. NaN values
+    (also observed, on the tiny diploid fixture) are handled the same way
+    for the same reason: no real information to call from.
     """
     if deltas is None:
         return "unknown", None
@@ -123,12 +143,8 @@ def call_ploidy_from_deltas(deltas):
         ("diploid", "triploid", "tetraploid"),
         key=lambda m: deltas[f"{m}_delta"],
     )
-    if (
-        best_fit_model == "diploid"
-        and deltas["diploid_delta"] <= MAX_CONFIDENT_DIPLOID_DELTA
-    ):
-        return "diploid", best_fit_model
-    return "unknown", best_fit_model
+    inferred_ploidy = "diploid" if best_fit_model == "diploid" else "non_diploid"
+    return inferred_ploidy, best_fit_model
 
 
 def main(argv=None):

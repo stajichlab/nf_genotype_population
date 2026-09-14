@@ -19,6 +19,19 @@ LRDMODEL_STDOUT_NAN = (
     "base.bin\tnan\tnan\tnan\tnan\tnan\tnan\tnan\n"
 )
 
+# Real-scale magnitudes observed running the 6-strain DH4148 pilot (not
+# synthetic) - deltas in the thousands, nowhere near the old 0.05 absolute
+# threshold this function no longer uses.
+LRDMODEL_STDOUT_REAL_DIPLOID = (
+    "file\tfree\tdip\ttri\ttet\tddip\tdtri\tdtet\n"
+    "base.bin\t-500000.0\t-506025.1\t-1486878.5\t-1240450.4\t6025.1\t986878.5\t740450.4\n"
+)
+
+LRDMODEL_STDOUT_REAL_HAPLOID_LIKE = (
+    "file\tfree\tdip\ttri\ttet\tddip\tdtri\tdtet\n"
+    "base.bin\t-500000.0\t-503264.3\t-502118.1\t-500276.8\t3264.3\t2118.1\t276.8\n"
+)
+
 
 def test_parse_lrdmodel_output_extracts_deltas():
     deltas = parse_lrdmodel_output(LRDMODEL_STDOUT_CONFIDENT_DIPLOID)
@@ -58,3 +71,26 @@ def test_call_ploidy_nan_deltas_is_unknown():
     deltas = parse_lrdmodel_output(LRDMODEL_STDOUT_NAN)
     ploidy, best_fit = call_ploidy_from_deltas(deltas)
     assert ploidy == "unknown"
+
+
+def test_call_ploidy_real_scale_diploid_delta_is_not_rejected():
+    # REGRESSION: the old MAX_CONFIDENT_DIPLOID_DELTA=0.05 absolute threshold
+    # rejected every real strain (confirmed by running the actual 6-strain
+    # pilot - real diploid_delta values run into the thousands). The current
+    # best_fit_model-only rule must call this diploid regardless of the
+    # delta's absolute magnitude.
+    deltas = parse_lrdmodel_output(LRDMODEL_STDOUT_REAL_DIPLOID)
+    ploidy, best_fit = call_ploidy_from_deltas(deltas)
+    assert ploidy == "diploid"
+    assert best_fit == "diploid"
+
+
+def test_call_ploidy_tetraploid_best_fit_is_non_diploid_not_haploid():
+    # Observed pattern from the 6-strain real-data pilot: metadata-haploid
+    # strains had best_fit_model == tetraploid. This must map to
+    # "non_diploid", NOT "haploid" - nQuire never tests a haploid model, so
+    # asserting "haploid" here would be an unsupported leap.
+    deltas = parse_lrdmodel_output(LRDMODEL_STDOUT_REAL_HAPLOID_LIKE)
+    ploidy, best_fit = call_ploidy_from_deltas(deltas)
+    assert ploidy == "non_diploid"
+    assert best_fit == "tetraploid"

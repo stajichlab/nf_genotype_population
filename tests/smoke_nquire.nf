@@ -43,8 +43,8 @@ workflow {
                 if (fields[0] != strain) {
                     error "${strain}: CSV strain column says '${fields[0]}'"
                 }
-                if (!(fields[1] in ['diploid', 'unknown'])) {
-                    error "${strain}: inferred_ploidy '${fields[1]}' is neither 'diploid' nor 'unknown' - call_ploidy_from_deltas() only returns those two values"
+                if (!(fields[1] in ['diploid', 'non_diploid', 'unknown'])) {
+                    error "${strain}: inferred_ploidy '${fields[1]}' is not one of 'diploid'/'non_diploid'/'unknown' - call_ploidy_from_deltas() only returns those three values"
                 }
                 if (fields[6] != 'nquire') {
                     error "${strain}: method column says '${fields[6]}', expected 'nquire'"
