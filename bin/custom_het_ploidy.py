@@ -13,8 +13,18 @@ import argparse
 import subprocess
 
 
-def het_fraction_from_vcf(vcf_lines):
+def het_fraction_from_vcf(vcf_lines, min_allele_balance=0.35, max_allele_balance=0.65):
     """Fraction of biallelic-SNP records called heterozygous.
+
+    A GT=0/1 call is only counted as heterozygous if its allele balance (the
+    alt-supporting fraction of AD) falls within
+    [min_allele_balance, max_allele_balance]. Genuine diploid heterozygous
+    sites carry ~50% allele balance (confirmed against strain DBVPG_3857,
+    metadata-diploid); without this check, a strain-wide, uniform, skewed
+    allele-balance signal (~0.25-0.3, confirmed against strain EXF_12768,
+    metadata-haploid) is indistinguishable from real heterozygosity and gets
+    miscalled diploid. If AD is absent from FORMAT, allele balance can't be
+    checked and the GT call is trusted as-is.
 
     vcf_lines: iterable of VCF data/header lines (header lines, i.e. those
     starting with '#', are ignored). Returns None if no qualifying sites
@@ -40,8 +50,18 @@ def het_fraction_from_vcf(vcf_lines):
         if len(alleles) != 2 or "." in alleles:
             continue
         n_sites += 1
-        if alleles[0] != alleles[1]:
-            n_het += 1
+        if alleles[0] == alleles[1]:
+            continue
+        if "AD" in format_keys:
+            ad = sample_values[format_keys.index("AD")].split(",")
+            if len(ad) == 2:
+                ref_reads, alt_reads = int(ad[0]), int(ad[1])
+                total = ref_reads + alt_reads
+                if total > 0:
+                    alt_fraction = alt_reads / total
+                    if not (min_allele_balance <= alt_fraction <= max_allele_balance):
+                        continue
+        n_het += 1
     if n_sites == 0:
         return None
     return n_het / n_sites
@@ -73,11 +93,13 @@ def main(argv=None):
     parser.add_argument("--strain", required=True)
     parser.add_argument("--region", default=None)
     parser.add_argument("--threshold", type=float, default=0.01)
+    parser.add_argument("--min-allele-balance", type=float, default=0.35)
+    parser.add_argument("--max-allele-balance", type=float, default=0.65)
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
 
     vcf_lines = run_bcftools_forced_diploid_call(args.cram, args.reference, args.region)
-    het_fraction = het_fraction_from_vcf(vcf_lines)
+    het_fraction = het_fraction_from_vcf(vcf_lines, args.min_allele_balance, args.max_allele_balance)
     ploidy = call_ploidy(het_fraction, args.threshold)
 
     with open(args.out, "w") as fh:
