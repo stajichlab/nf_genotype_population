@@ -1,0 +1,27 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Source https://github.com/clwgg/nQuire
+    Description nQuire ploidy-estimation tool, built from source (no upstream container/bioconda package exists)
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        build-essential git ca-certificates zlib1g-dev samtools python3
+    rm -rf /var/lib/apt/lists/*
+
+    cd /opt
+    git clone --depth 1 https://github.com/clwgg/nQuire.git
+    cd nQuire
+    git submodule update --init --recursive
+    make htsconf
+    make submodules
+    make
+    install -m 0755 nQuire /usr/local/bin/nQuire
+
+%test
+    /usr/local/bin/nQuire 2>&1 | grep -q "Main commands" && echo "nQuire OK"
+    samtools --version | head -1
+    python3 --version
