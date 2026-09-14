@@ -47,7 +47,7 @@ workflow {
         ref,
         ref_fai,
         ref_dict,
-        'synth_contig1',
+        ['synth_contig1'], // multi-contig support: intervals is now a List<String>
     )
 
     JOINT_GENOTYPING.out.vcf_by_population.view()

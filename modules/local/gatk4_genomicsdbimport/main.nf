@@ -11,7 +11,7 @@ process GATK4_GENOMICSDBIMPORT {
     path reference
     path reference_fai
     path reference_dict
-    val intervals
+    val intervals // List<String> of contig names - one -L per contig (multi-contig support)
 
     output:
     tuple val(population), path("${population}_gdb"), emit: genomicsdb
@@ -25,6 +25,11 @@ process GATK4_GENOMICSDBIMPORT {
         error "GATK4_GENOMICSDBIMPORT received zero GVCFs for population '${population}'; refusing to invoke GATK with an empty -V list."
     }
     def gvcf_args = gvcfs.collect { "-V \"${it}\"" }.join(' ')
+    // MULTI-CONTIG SUPPORT: `intervals` is now the full list of contig names
+    // from the reference .fai (see workflows/genotype_population.nf), not a
+    // single contig string. GenomicsDBImport takes one -L per interval, not a
+    // comma/space-joined value, so build one flag per contig.
+    def interval_args = intervals.collect { "-L \"${it}\"" }.join(' ')
     // FINAL-REVIEW I5: cap the JVM heap at ~80% of this task's granted memory
     // (see GATK4_HAPLOTYPECALLER for the full rationale).
     def xmx = (task.memory.toGiga() * 0.8) as int
@@ -35,6 +40,7 @@ process GATK4_GENOMICSDBIMPORT {
         --genomicsdb-workspace-path "${population}_gdb" \\
         --genomicsdb-shared-posixfs-optimizations true \\
         --bypass-feature-reader \\
-        -L "${intervals}"
+        --merge-input-intervals \\
+        ${interval_args}
     """
 }

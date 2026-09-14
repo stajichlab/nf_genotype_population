@@ -67,20 +67,15 @@ workflow GENOTYPE_POPULATION {
 
     GATK4_HAPLOTYPECALLER(ploidy_cram_ch, reference, reference_fai, reference_dict)
 
-    // CORRECTION 3 (Task 13 binding ruling): Groovy's File.baseName only strips
-    // the LAST extension, so for "ref.fa.fai" it yields "ref.fa" - not a valid
-    // GATK contig/interval name. Derive the interval from the actual first
-    // column of the first line of the .fai file instead (the contig name).
-    // NOTE: this only covers a single contig/interval - a known Phase 1
-    // limitation for multi-contig real genomes (out of scope here, matches
-    // Task 10's own already-documented limitation). Do NOT expand this to
-    // multi-interval support - warn at runtime instead so a multi-contig
-    // reference doesn't silently only genotype its first contig.
-    def faiLines = reference_fai.text.readLines()
-    if (faiLines.size() > 1) {
-        log.warn "reference_fai has ${faiLines.size()} contigs, but this Phase 1 pipeline only genotypes the FIRST one ('${faiLines[0].split('\t')[0]}'). Multi-contig/multi-interval support is out of scope (see Task 10's own documented limitation)."
-    }
-    def intervals = faiLines[0].split('\t')[0]
+    // MULTI-CONTIG SUPPORT: derive the FULL interval list from every contig
+    // in the .fai (one -L per contig passed through to GenomicsDBImport), not
+    // just the first line. This lifts the earlier Phase 1 single-contig
+    // limitation (CORRECTION 3's underlying fix - deriving contig names from
+    // the .fai's first column rather than reference_fai.baseName's wrong
+    // filename-derived value - is unchanged and still required).
+    def faiLines = reference_fai.text.readLines().findAll { it.trim() }
+    def intervals = faiLines.collect { it.split('\t')[0] }
+    log.info "Joint genotyping will cover all ${intervals.size()} contig(s) in ${reference_fai.name}."
 
     JOINT_GENOTYPING(
         GATK4_HAPLOTYPECALLER.out.gvcf,
