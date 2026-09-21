@@ -22,21 +22,26 @@ process GATK4_GENOTYPEGVCFS {
     // GATK4_GENOTYPEGVCFS: the crash ("Genotype has no likelihoods" in
     // ExcessHet) traces to the GenomicsDB *read* step, not the genotyping
     // step - confirmed by the "too many genotypes" warning still naming 50
-    // alleles even after --max-alternate-alleles 24 was set (that flag only
-    // trims alleles GATK actually genotypes/outputs, applied too late to
-    // prevent the read-time combination). The controlling flag for the read
-    // step is --genomicsdb-max-alternate-alleles (GATK 4.5.0.0 --help
+    // alleles even after --max-alternate-alleles 24 was set alone (that flag
+    // only trims alleles GATK actually genotypes/outputs, applied too late
+    // to prevent the read-time combination). The controlling flag for the
+    // read step is --genomicsdb-max-alternate-alleles (GATK 4.5.0.0 --help
     // default: 50), which is what combined 50 alleles into 1275 diploid
     // genotypes - over --max-genotype-count's default cap of 1024 - causing
     // GATK to drop that sample's PL field and then crash annotating it.
-    // Capping both at 24 keeps genotype count for a diploid site at
-    // 25*26/2=325, safely under the 1024 cap.
+    // Setting both flags to the same value (24) fails GATK's own validation:
+    // "GenomicsDB max alternate alleles must be at least one greater than
+    // genotype calculation max alternate alleles, accounting for the
+    // non-ref allele" - it needs headroom for the internal <NON_REF> allele.
+    // genomicsdb-max-alternate-alleles=26, max-alternate-alleles=24 keeps
+    // genotype count for a diploid site at 27*28/2=378, safely under 1024,
+    // while satisfying that constraint.
     """
     set -euo pipefail
     gatk --java-options "-Xmx${xmx}g" GenotypeGVCFs \\
         -R "${reference}" \\
         -V "gendb://${genomicsdb}" \\
-        --genomicsdb-max-alternate-alleles 24 \\
+        --genomicsdb-max-alternate-alleles 26 \\
         --max-alternate-alleles 24 \\
         -O "${population}.vcf.gz"
     """
