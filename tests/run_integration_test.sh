@@ -18,8 +18,9 @@
 #   4. derives ploidy_overrides.csv from its output using EXACTLY the one-liner
 #      the README documents (so the README's instructions are themselves tested)
 #   5. runs the full default workflow
-#   6. asserts on results/all.annotated.vcf.gz, the published GVCFs, and the
-#      published ploidy QC record
+#   6. asserts on results/all.qc.annotated.vcf.gz and
+#      results/all.snps.maf.annotated.vcf.gz (VARIANT_QC_FILTER outputs), the
+#      filter stats, the published GVCFs, and the published ploidy QC record
 #
 # Every assertion failure exits non-zero. Expect roughly 10-20 minutes, mostly
 # SLURM queueing behind other jobs on this account.
@@ -130,11 +131,12 @@ run_full_workflow() {
         --population_sets    "${FIXTURES}/population_sets_fixture.yaml" \
         --snpeff_db_dir      "${DB_DIR}" \
         --snpeff_genome_name "${GENOME}" \
+        --mask_bed           "${FIXTURES}/mask_fixture.bed" \
         --outdir             "${OUTDIR}"
 }
 
 assert_outputs() {
-    local vcf="${OUTDIR}/all.annotated.vcf.gz"
+    local vcf="${OUTDIR}/all.qc.annotated.vcf.gz"
 
     section "Assertions on ${vcf}"
 
@@ -154,12 +156,15 @@ assert_outputs() {
     body=$(zcat "${vcf}" | grep -v '^#')
 
     # ---- record count -----------------------------------------------------
+    # 34 joint-called records -> 27 PASS -> 24 outside mask_fixture.bed
+    # (522, 565, 590 masked) -> 22 after missingness: at 75 and 150 the haploid
+    # has FORMAT/DP=3 < qc_min_dp, so its GT is set missing and F_MISSING=0.5.
     local n_records
     n_records=$(printf '%s\n' "${body}" | grep -c . || true)
-    if [[ "${n_records}" -eq 34 ]]; then
-        pass "record count is 34"
+    if [[ "${n_records}" -eq 22 ]]; then
+        pass "record count is 22"
     else
-        fail "record count is ${n_records}, expected 34"
+        fail "record count is ${n_records}, expected 22"
     fi
 
     # ---- ANN= on every record --------------------------------------------
@@ -171,19 +176,46 @@ assert_outputs() {
         fail "only ${n_ann} of ${n_records} records carry ANN="
     fi
 
-    # ---- FILTER column has PASS and at least one named filter -------------
-    local n_pass n_named
-    n_pass=$(printf '%s\n' "${body}" | awk -F'\t' '$7 == "PASS"' | grep -c . || true)
-    n_named=$(printf '%s\n' "${body}" | awk -F'\t' '$7 != "PASS" && $7 != "."' | grep -c . || true)
-    if [[ "${n_pass}" -gt 0 ]]; then
-        pass "FILTER column has ${n_pass} PASS record(s)"
+    # ---- QC filter effects ------------------------------------------------
+    local n_notpass
+    n_notpass=$(printf '%s\n' "${body}" | awk -F'\t' '$7 != "PASS"' | grep -c . || true)
+    if [[ "${n_notpass}" -eq 0 ]]; then
+        pass "every record is FILTER=PASS"
     else
-        fail "FILTER column has no PASS records"
+        fail "${n_notpass} record(s) are not PASS after VARIANT_QC_FILTER"
     fi
-    if [[ "${n_named}" -gt 0 ]]; then
-        pass "FILTER column has ${n_named} record(s) with a named filter: $(printf '%s\n' "${body}" | awk -F'\t' '$7 != "PASS" {print $7}' | sort -u | tr '\n' ' ')"
+    local n_masked
+    n_masked=$(printf '%s\n' "${body}" | awk -F'\t' '$2 > 500 && $2 <= 600' | grep -c . || true)
+    if [[ "${n_masked}" -eq 0 ]]; then
+        pass "no record inside mask_fixture.bed"
     else
-        fail "FILTER column has no named-filter records - hard filtering produced no verdicts"
+        fail "${n_masked} record(s) inside mask_fixture.bed"
+    fi
+    local n_lowgt
+    n_lowgt=$(printf '%s\n' "${body}" | awk -F'\t' '
+        { split($9, f, ":"); for (i in f) { if (f[i]=="GQ") gq=i; if (f[i]=="DP") dp=i }
+          for (c = 10; c <= NF; c++) { split($c, g, ":");
+            if (g[1] !~ /\./ && ((g[gq] != "." && g[gq] < 20) || (g[dp] != "." && g[dp] < 5))) print } }' | grep -c . || true)
+    if [[ "${n_lowgt}" -eq 0 ]]; then
+        pass "no called genotype has GQ < 20 or DP < 5"
+    else
+        fail "${n_lowgt} called genotype(s) have GQ < 20 or DP < 5"
+    fi
+
+    local stats="${OUTDIR}/all.filter_stats.tsv"
+    if [[ -s "${stats}" ]] && awk -F'\t' '$1=="input"{i=$2} $1=="pass_unmasked"{p=$2} END{exit !(i==34 && p<i)}' "${stats}"; then
+        pass "filter stats published; hard filters flagged records (input 34 > pass_unmasked)"
+    else
+        fail "filter stats missing or hard filters flagged nothing: $(tr '\n' ' ' < "${stats}" 2>/dev/null)"
+    fi
+
+    local snps="${OUTDIR}/all.snps.maf.annotated.vcf.gz"
+    local n_snps
+    n_snps=$(zcat "${snps}" 2>/dev/null | grep -vc '^#' || true)
+    if [[ -s "${snps}.tbi" && "${n_snps}" -eq 22 ]]; then
+        pass "biallelic SNP set published with index, 22 records"
+    else
+        fail "biallelic SNP set: ${n_snps} records (expected 22) or index missing"
     fi
 
     # ---- both sample columns present --------------------------------------

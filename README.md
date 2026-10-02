@@ -67,12 +67,32 @@ nextflow run main.nf -profile hpcc \
     --ploidy_overrides /path/to/ploidy_overrides.csv \
     --population_sets assets/population_sets.yaml \
     --snpeff_db_dir /path/to/snpeff_db \
-    --snpeff_genome_name RmucDH4148
+    --snpeff_genome_name RmucDH4148 \
+    --mask_bed /path/to/mask.bed
 ```
+
+#### Variant QC
+
+`VARIANT_QC_FILTER` (`bin/filter_population_vcf.sh`) runs between GATK hard
+filtering and SnpEff. GATK hard filters only flag sites in FILTER; this step
+removes them and filters genotypes. In order:
+
+1. keep `FILTER=PASS`; drop sites that overlap `--mask_bed` (repeats, low complexity)
+2. drop sites with summed `FORMAT/DP` > `qc_dp_max_factor` x the median site depth
+3. set genotypes to missing where `GQ < qc_min_gq` or `DP < qc_min_dp`
+4. set het genotypes to missing where one allele has more than `1 - qc_min_ab` of the allelic reads
+5. set haploid / homozygous genotypes to missing where no allele has at least `qc_hap_min_af` of the reads
+6. drop ALT alleles no genotype still carries and sites left monomorphic; recompute AC/AN/AF/MAF/F_MISSING
+7. drop sites with `F_MISSING > qc_max_missing` → `<pop>.qc`
+8. biallelic SNPs with `MAF >= qc_min_maf` → `<pop>.snps.maf`
+
+The record count after each step is written to `<pop>.filter_stats.tsv`.
 
 #### Outputs
 
-- `results/all.annotated.vcf.gz` — the final annotated, hard-filtered joint callset. (Note: its `.tbi` index is not currently published to `results/` — regenerate with `tabix -p vcf results/all.annotated.vcf.gz` if needed.)
+- `results/<pop>.qc.annotated.vcf.gz` (+ `.tbi`) — QC-filtered, annotated callset: all variant types, no MAF floor.
+- `results/<pop>.snps.maf.annotated.vcf.gz` (+ `.tbi`) — biallelic SNPs with the MAF floor, annotated (population structure, PCA, GWAS-type analyses).
+- `results/<pop>.filter_stats.tsv`, `results/<pop>.depth_threshold.txt` — records kept at each QC step, and the site-depth ceiling used.
 - `results/gvcfs/<strain>.g.vcf.gz` (+ `.tbi`) — **per-strain GVCFs, retained.** Design spec §5 keeps these so new strains can be added and the population re-genotyped without recalling every existing strain from CRAM. They are copied out of `work/`, so they survive a scratch cleanup.
 - `results/ploidy_review.csv` and `results/ploidy_inference_all.csv` — the ploidy QC record. Ploidy inference runs on every strain in the full workflow too, so each production run leaves a diagnostic trail. Compare `ploidy_review.csv` against the `ploidy_overrides.csv` you supplied to spot ploidy drift.
 
@@ -102,6 +122,8 @@ ignored.
 - **population_sets** (default: `assets/population_sets.yaml`): YAML defining named sub-population groups (Phase 2). The built-in `all` group is **not** read from this file; it is derived at runtime from every strain that produced a GVCF, and an `all` key in the YAML is ignored.
 - **snpeff_db_dir** (required for Phase 2 only): Directory containing SnpEff database files.
 - **snpeff_genome_name** (required for Phase 2 only): SnpEff genome database name (e.g., `RmucDH4148`).
+- **mask_bed** (optional, strongly recommended): BED of repeat and low-complexity intervals to exclude (for example RepeatMasker + dustmasker + TRF, merged). If unset the run warns and does no masking.
+- **qc_min_gq** (default 20), **qc_min_dp** (default 5), **qc_min_ab** (default 0.2), **qc_hap_min_af** (default 0.8), **qc_dp_max_factor** (default 2), **qc_max_missing** (default 0.1), **qc_min_maf** (default 0.05): VARIANT_QC_FILTER thresholds; see "Variant QC" above.
 - **outdir** (default: `${launchDir}/results`, i.e. `results` relative to wherever you run `nextflow run` from): Output directory for results.
 
 ### SnpEff Database
@@ -144,8 +166,10 @@ tests/run_integration_test.sh
 This builds throwaway synthetic fixtures and a throwaway SnpEff database, runs
 `-entry PLOIDY_ONLY`, derives `ploidy_overrides.csv` from its output exactly as
 the Phase 2 instructions above describe, runs the full default workflow, and
-then asserts on the final `results/all.annotated.vcf.gz` — record count, `ANN=`
-on every record, both `PASS` and named FILTER values, both sample columns, and
+then asserts on `results/all.qc.annotated.vcf.gz` and
+`results/all.snps.maf.annotated.vcf.gz` — record counts, `ANN=` on every
+record, only `PASS` records, no record in the fixture mask, no called genotype
+below the GQ/DP floors, the filter stats, both sample columns, and
 (most importantly) that the haploid strain emits single-allele genotypes while
 the diploid strain emits two-allele genotypes at a shared site. Any failed
 assertion exits non-zero. It takes roughly 10-20 minutes, mostly SLURM queueing.
