@@ -112,10 +112,14 @@ workflow {
     // terminal sink with no downstream Nextflow channel consumer ordering it
     // needs to respect, not a side-effect populating a lookup another
     // channel operation reads back from.
-    GENOTYPE_POPULATION.out.annotated_vcf.subscribe { population, vcf ->
+    // Publish the tabix index with the VCF. Before this, SNPEFF_ANNOTATE built
+    // the .tbi but did not declare it as an output, so only the VCF reached
+    // ${params.outdir} and region queries on it failed until it was reindexed.
+    GENOTYPE_POPULATION.out.annotated_vcf.subscribe { population, vcf, tbi ->
         def outDir = file(params.outdir)
         outDir.mkdirs()
         vcf.copyTo(outDir.resolve(vcf.name))
+        tbi.copyTo(outDir.resolve(tbi.name))
     }
 
     // FINAL-REVIEW I6: PLOIDY_INFERENCE always runs in the default workflow too

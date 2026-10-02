@@ -144,6 +144,12 @@ assert_outputs() {
     fi
     pass "final annotated VCF exists and is non-empty"
 
+    if [[ ! -s "${vcf}.tbi" ]]; then
+        echo "  FAIL: ${vcf}.tbi missing or empty" >&2
+        exit 1
+    fi
+    pass "final annotated VCF index (.tbi) published"
+
     local body
     body=$(zcat "${vcf}" | grep -v '^#')
 
