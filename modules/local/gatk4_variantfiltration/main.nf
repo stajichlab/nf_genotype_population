@@ -51,9 +51,16 @@ process GATK4_HARDFILTER {
         --filter-expression "SOR > 10.0" --filter-name "SOR10" \\
         -O "${population}.indel.filtered.vcf.gz"
 
-    gatk --java-options "-Xmx${xmx}g" MergeVcfs \\
+    # SortVcf, not MergeVcfs: GenotypeGVCFs on a multi-contig GenomicsDB
+    # workspace can emit contigs in a different order than the reference
+    # dictionary (observed: all CM* contigs, then JBZGVR* scaffolds, while the
+    # .fai interleaves them). MergeVcfs then aborts with "not sorted according
+    # to the comparator". SortVcf merges both inputs and sorts by the header
+    # sequence dictionary.
+    gatk --java-options "-Xmx${xmx}g" SortVcf \\
         -I "${population}.snp.filtered.vcf.gz" \\
         -I "${population}.indel.filtered.vcf.gz" \\
+        --TMP_DIR "\${SCRATCH:-\$PWD}" \\
         -O "${population}.filtered.vcf.gz"
     """
 }
