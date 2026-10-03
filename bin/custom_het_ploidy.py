@@ -131,7 +131,8 @@ def call_ploidy(value, threshold, callable_bp=None, min_callable_bp=0):
 
     'unknown' if value is None or callable_bp is below min_callable_bp: with
     little callable sequence the rate is unstable (DH4148 strains with
-    0.9-2.8 Mb callable gave 655-10,336 hets/Mb whatever their ploidy).
+    0.9-2.8 Mb callable, 4-14% of the 20.4 Mb genome, gave 655-10,336
+    hets/Mb whatever their ploidy; 5.2 Mb, 25%, gave a normal value).
     """
     if value is None:
         return "unknown"
@@ -192,8 +193,9 @@ def main(argv=None):
     parser.add_argument("--mask", default=None, help="repeat / low-complexity BED to exclude")
     parser.add_argument("--threshold", type=float, default=1000.0,
                         help="diploid if balanced hets per callable Mb is above this")
-    parser.add_argument("--min-callable-bp", type=int, default=5_000_000,
-                        help="'unknown' if fewer callable bases than this")
+    parser.add_argument("--min-callable-fraction", type=float, default=0.25,
+                        help="'unknown' if callable bases are below this fraction of the "
+                             "reference (or --region) length")
     parser.add_argument("--min-mapq", type=int, default=20)
     parser.add_argument("--min-baseq", type=int, default=20)
     parser.add_argument("--min-qual", type=float, default=30)
@@ -211,7 +213,14 @@ def main(argv=None):
     callable_bp = run_callable(args.cram, args.reference, args.min_mapq, args.min_baseq,
                                args.min_dp, mask, args.region)
     value = het_per_mb(n_het, callable_bp)
-    ploidy = call_ploidy(value, args.threshold, callable_bp, args.min_callable_bp)
+    if args.region:
+        c, _, rng = args.region.partition(":")
+        s, _, e = rng.replace(",", "").partition("-")
+        target_bp = (int(e) - int(s) + 1) if rng else lengths[c]
+    else:
+        target_bp = sum(lengths.values())
+    min_callable_bp = int(args.min_callable_fraction * target_bp)
+    ploidy = call_ploidy(value, args.threshold, callable_bp, min_callable_bp)
 
     with open(args.out, "w") as fh:
         fh.write("strain,inferred_ploidy,het_fraction,method,het_per_mb,n_het,n_snp_sites,callable_bp\n")

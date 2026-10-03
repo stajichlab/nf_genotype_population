@@ -34,12 +34,13 @@ How `custom_het_script` decides:
 2. It keeps sites with QUAL >= 30 and DP >= 10 that are outside the mask.
 3. It counts the biallelic SNPs called heterozygous with allele balance 0.35-0.65.
 4. It divides that count by the callable bases: `samtools depth` at the same quality floors, depth >= 10, outside the mask.
-5. A strain is diploid if it has more than `--ploidy_het_per_mb_threshold` (default 1000) balanced het SNPs per callable Mb. It is `unknown` if it has fewer than `--ploidy_min_callable_bp` (default 5,000,000) callable bases.
+5. A strain is diploid if it has more than `--ploidy_het_per_mb_threshold` (default 1000) balanced het SNPs per callable Mb. It is `unknown` if its callable bases are less than `--ploidy_min_callable_fraction` (default 0.25) of the reference length.
 
 These defaults come from a run on all 319 DH4148 strains (2026-10-03, genome 20.4 Mb):
 - Among strains with at least 10 Mb callable, haploids scored at most 453 hets/Mb and diploids at least 1,785.
 - One exception: EXF_12768, a haploid with mixed reads, scored 2,295.
-- Strains with 0.9-2.8 Mb callable gave unstable values (655-10,336).
+- Strains with 0.9-2.8 Mb callable (4-14% of the genome) gave unstable values (655-10,336).
+- A strain with 5.2 Mb callable (25%) gave a normal haploid value.
 
 `results/ploidy/ploidy_inference_all.csv` reports `het_per_mb`, `n_het`, `n_snp_sites` and `callable_bp`. It also reports the old ratio `het_fraction` (balanced hets / variant sites) for comparison only.
 
@@ -184,7 +185,7 @@ form Sarek CRAMs give). A strain with no match is skipped with a warning, and
 - **snpeff_genome_name** (required for Phase 2 only): SnpEff genome database name (e.g., `RmucDH4148`).
 - **mask_bed** (optional, strongly recommended): BED of repeat and low-complexity intervals to exclude (for example RepeatMasker + dustmasker + TRF, merged). If unset the run warns and does no masking.
 - **ploidy_het_per_mb_threshold** (default 1000): `custom_het_script` calls a strain diploid above this many balanced het SNPs per callable Mb.
-- **ploidy_min_callable_bp** (default 5000000): below this many callable bases, `custom_het_script` reports `unknown`.
+- **ploidy_min_callable_fraction** (default 0.25): if callable bases are below this fraction of the reference length, `custom_het_script` reports `unknown`.
 - **qc_min_gq** (default 20), **qc_min_dp** (default 5), **qc_min_ab** (default 0.2), **qc_hap_min_af** (default 0.8), **qc_dp_max_factor** (default 2), **qc_max_missing** (default 0.1), **qc_min_maf** (default 0.05): VARIANT_QC_FILTER thresholds; see "Variant QC" above.
 - **population_mode** (default `subset`): `subset` or `regenotype`; see "Populations" above.
 - **output_prefix** (default none): if set, outputs are named `<output_prefix>.<pop>.*`.

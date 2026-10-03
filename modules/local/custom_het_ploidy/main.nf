@@ -57,7 +57,7 @@ process CUSTOM_HET_PLOIDY {
         --strain "${strain}" \\
         ${mask_arg} \\
         --threshold ${params.ploidy_het_per_mb_threshold} \\
-        --min-callable-bp ${params.ploidy_min_callable_bp} \\
+        --min-callable-fraction ${params.ploidy_min_callable_fraction} \\
         --out "${strain}.ploidy_inference.csv"
     """
 }
