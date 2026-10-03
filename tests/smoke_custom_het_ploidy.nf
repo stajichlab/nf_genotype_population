@@ -13,7 +13,7 @@ workflow {
         ['haploid_strain', file("${projectDir}/../tests/fixtures/haploid_strain.cram"), file("${projectDir}/../tests/fixtures/haploid_strain.cram.crai")],
         ['diploid_strain', file("${projectDir}/../tests/fixtures/diploid_strain.cram"), file("${projectDir}/../tests/fixtures/diploid_strain.cram.crai")],
     )
-    CUSTOM_HET_PLOIDY(ch, ref, ref_fai)
+    CUSTOM_HET_PLOIDY(ch, ref, ref_fai, file("${projectDir}/../assets/NO_FILE"))
 
     CUSTOM_HET_PLOIDY.out.csv.view()
 
@@ -30,7 +30,7 @@ workflow {
             }
             entries.each { strain, csv ->
                 def lines = csv.text.readLines()
-                if (lines[0] != 'strain,inferred_ploidy,het_fraction,method') {
+                if (lines[0] != 'strain,inferred_ploidy,het_fraction,method,het_per_mb,n_het,n_snp_sites,callable_bp') {
                     error "${strain}: unexpected CSV header '${lines[0]}'"
                 }
                 if (lines.size() != 2) {
@@ -42,7 +42,7 @@ workflow {
                 }
                 def expected = (strain == 'haploid_strain') ? 'haploid' : 'diploid'
                 if (fields[1] != expected) {
-                    error "${strain}: inferred ploidy '${fields[1]}', expected '${expected}' (het_fraction=${fields[2]})"
+                    error "${strain}: inferred ploidy '${fields[1]}', expected '${expected}' (het_per_mb=${fields[4]}, het_fraction=${fields[2]})"
                 }
                 if (fields[2] == 'NA') {
                     error "${strain}: het_fraction is NA - the classifier had no sites to work from"

@@ -13,6 +13,7 @@ process CUSTOM_HET_PLOIDY {
     tuple val(strain), path(cram), path(crai)
     path reference
     path reference_fai
+    path mask_bed   // repeat + low-complexity BED, or assets/NO_FILE for no mask
 
     output:
     tuple val(strain), path("${strain}.ploidy_inference.csv"), emit: csv
@@ -43,13 +44,20 @@ process CUSTOM_HET_PLOIDY {
     // and otherwise fall back to this module's own known location in the tree
     // (the test-entrypoint case). Both branches were exercised and verified.
     def bin_dir = file("${projectDir}/bin").exists() ? "${projectDir}/bin" : "${moduleDir}/../../../bin"
+    // Metric: balanced het SNPs per callable Mb (see the script docstring for
+    // why the old het / variant-site ratio was replaced on 2026-10-03).
+    def mask_arg = mask_bed.name == 'NO_FILE' ? '' : "--mask ${mask_bed}"
     """
     set -euo pipefail
     export PATH="/opt/conda/envs/bcftools_samtools/bin:\$PATH"
     ${bin_dir}/custom_het_ploidy.py \\
         --cram "${cram}" \\
         --reference "${reference}" \\
+        --reference-fai "${reference_fai}" \\
         --strain "${strain}" \\
+        ${mask_arg} \\
+        --threshold ${params.ploidy_het_per_mb_threshold} \\
+        --min-callable-bp ${params.ploidy_min_callable_bp} \\
         --out "${strain}.ploidy_inference.csv"
     """
 }

@@ -27,6 +27,24 @@ NXF_SYNTAX_PARSER=v1 nextflow run main.nf -entry PLOIDY_ONLY -profile hpcc \
 
 This produces `results/ploidy_review.csv`, with columns `strain`, `inferred_ploidy` (haploid/diploid), `metadata_ploidy`, and `status` (AGREE/DISAGREE/NO_METADATA/UNKNOWN_INFERENCE).
 
+Add `--mask_bed` here too: the default method (`custom_het_script`, `bin/custom_het_ploidy.py`) excludes the masked repeats.
+
+How `custom_het_script` decides:
+1. It calls variants with `bcftools mpileup -a FORMAT/AD,FORMAT/DP -q 20 -Q 20 | bcftools call -mv --ploidy 2`.
+2. It keeps sites with QUAL >= 30 and DP >= 10 that are outside the mask.
+3. It counts the biallelic SNPs called heterozygous with allele balance 0.35-0.65.
+4. It divides that count by the callable bases: `samtools depth` at the same quality floors, depth >= 10, outside the mask.
+5. A strain is diploid if it has more than `--ploidy_het_per_mb_threshold` (default 1000) balanced het SNPs per callable Mb. It is `unknown` if it has fewer than `--ploidy_min_callable_bp` (default 5,000,000) callable bases.
+
+These defaults come from a run on all 319 DH4148 strains (2026-10-03, genome 20.4 Mb):
+- Among strains with at least 10 Mb callable, haploids scored at most 453 hets/Mb and diploids at least 1,785.
+- One exception: EXF_12768, a haploid with mixed reads, scored 2,295.
+- Strains with 0.9-2.8 Mb callable gave unstable values (655-10,336).
+
+`results/ploidy/ploidy_inference_all.csv` reports `het_per_mb`, `n_het`, `n_snp_sites` and `callable_bp`. It also reports the old ratio `het_fraction` (balanced hets / variant sites) for comparison only.
+
+The old ratio must not be used to call ploidy. Its denominator is mostly the hom-alt count, so it shrinks for strains close to the reference. In the DH4148 population it called 114 of 115 near-reference haploids diploid.
+
 ### Phase 2: Manual Review and Full Genotyping
 
 #### Building `ploidy_overrides.csv`
@@ -165,6 +183,8 @@ form Sarek CRAMs give). A strain with no match is skipped with a warning, and
 - **snpeff_db_dir** (required for Phase 2 only): Directory containing SnpEff database files.
 - **snpeff_genome_name** (required for Phase 2 only): SnpEff genome database name (e.g., `RmucDH4148`).
 - **mask_bed** (optional, strongly recommended): BED of repeat and low-complexity intervals to exclude (for example RepeatMasker + dustmasker + TRF, merged). If unset the run warns and does no masking.
+- **ploidy_het_per_mb_threshold** (default 1000): `custom_het_script` calls a strain diploid above this many balanced het SNPs per callable Mb.
+- **ploidy_min_callable_bp** (default 5000000): below this many callable bases, `custom_het_script` reports `unknown`.
 - **qc_min_gq** (default 20), **qc_min_dp** (default 5), **qc_min_ab** (default 0.2), **qc_hap_min_af** (default 0.8), **qc_dp_max_factor** (default 2), **qc_max_missing** (default 0.1), **qc_min_maf** (default 0.05): VARIANT_QC_FILTER thresholds; see "Variant QC" above.
 - **population_mode** (default `subset`): `subset` or `regenotype`; see "Populations" above.
 - **output_prefix** (default none): if set, outputs are named `<output_prefix>.<pop>.*`.
