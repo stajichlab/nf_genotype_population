@@ -5,6 +5,7 @@ include { JOINT_GENOTYPING }       from '../subworkflows/local/joint_genotyping/
 include { GATK4_HARDFILTER }       from '../modules/local/gatk4_variantfiltration/main.nf'
 include { VARIANT_QC_FILTER }      from '../modules/local/variant_qc_filter/main.nf'
 include { SNPEFF_ANNOTATE }        from '../modules/local/snpeff/main.nf'
+include { SNP_ALIGNMENT; IQTREE }  from '../modules/local/snp_tree/main.nf'
 
 def ploidyCodeFor(label) {
     if (label == 'haploid') { return 1 }
@@ -97,15 +98,54 @@ workflow GENOTYPE_POPULATION {
         log.warn "--mask_bed not set: VARIANT_QC_FILTER will not drop repeat / low-complexity sites"
     }
     def mask_bed = params.mask_bed ? file(params.mask_bed, checkIfExists: true) : file("${projectDir}/assets/NO_FILE")
-    VARIANT_QC_FILTER(GATK4_HARDFILTER.out.vcf, mask_bed)
+    // Population groups. --population_mode subset (default): every named group
+    // in the population YAML is cut from the `all` callset here (bcftools -S),
+    // then filtered with its own depth ceiling, missingness and MAF. GATK site
+    // annotations (QD, FS, SOR, MQ) stay those computed over all strains.
+    // --population_mode regenotype: JOINT_GENOTYPING calls each group
+    // separately from its GVCFs (slow), and those callsets arrive here.
+    // --output_prefix P names every output P.<pop>.* as in the bash pipeline.
+    def pop_raw  = (new org.yaml.snakeyaml.Yaml().load(population_sets_yaml.text) ?: [:])
+    def pop_sets = (pop_raw.containsKey('Populations') ? (pop_raw.Populations ?: [:]) : pop_raw)
+        .findAll { name, strains -> name != 'all' }
+    def pfx = params.output_prefix ? "${params.output_prefix}." : ''
+    def qc_in_ch = GATK4_HARDFILTER.out.vcf.map { pop, vcf, tbi -> ["${pfx}${pop}".toString(), vcf, tbi, []] }
+    if (params.population_mode == 'subset' && pop_sets) {
+        pop_sets.each { name, strains ->
+            if (!strains) { error "population '${name}' in ${population_sets_yaml.name} lists no strains" }
+        }
+        log.info "VARIANT_QC_FILTER: ${pop_sets.size()} population group(s) cut from the 'all' callset: ${pop_sets.collect { n, s -> "${n} (${s.size()})" }.join(', ')}"
+        qc_in_ch = qc_in_ch.mix(
+            GATK4_HARDFILTER.out.vcf
+                .filter { pop, vcf, tbi -> pop == 'all' }
+                .flatMap { pop, vcf, tbi -> pop_sets.collect { name, strains -> ["${pfx}${name}".toString(), vcf, tbi, strains.collect { it.toString() }] } }
+        )
+    }
+    VARIANT_QC_FILTER(qc_in_ch, mask_bed)
 
     // Annotate both QC outputs: <pop>.qc (all variant types, no MAF floor) and
     // <pop>.snps.maf (biallelic SNPs, MAF floor).
     SNPEFF_ANNOTATE(VARIANT_QC_FILTER.out.qc.mix(VARIANT_QC_FILTER.out.snps), snpeff_db_dir, snpeff_genome_name)
 
+    // Strain tree from the biallelic SNP set (port of the bash pipeline's
+    // 06_make_SNP_tree.sh + 07_iqtree.sh). --skip_tree turns it off.
+    def tree_ch = Channel.empty()
+    def aln_ch = Channel.empty()
+    def aln_stats_ch = Channel.empty()
+    if (!params.skip_tree) {
+        SNP_ALIGNMENT(VARIANT_QC_FILTER.out.snps)
+        IQTREE(SNP_ALIGNMENT.out.alignment)
+        tree_ch = IQTREE.out.tree
+        aln_ch = SNP_ALIGNMENT.out.alignment
+        aln_stats_ch = SNP_ALIGNMENT.out.stats
+    }
+
     emit:
     annotated_vcf = SNPEFF_ANNOTATE.out.vcf
     filter_stats  = VARIANT_QC_FILTER.out.stats
+    tree          = tree_ch
+    alignment     = aln_ch
+    alignment_stats = aln_stats_ch
     // FINAL-REVIEW I6: PLOIDY_INFERENCE runs on every strain in the production
     // workflow (a deliberate QC side effect), but neither of its outputs was
     // emitted, so ~278 CUSTOM_HET_PLOIDY jobs per run produced nothing any

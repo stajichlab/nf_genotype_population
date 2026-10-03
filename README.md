@@ -88,11 +88,24 @@ removes them and filters genotypes. In order:
 
 The record count after each step is written to `<pop>.filter_stats.tsv`.
 
+#### Strain tree
+
+SNP_ALIGNMENT and IQTREE port `06_make_SNP_tree.sh` and `07_iqtree.sh` from the
+bash PopGenomics pipeline. They run on `<pop>.snps.maf`:
+
+1. keep sites with a missing-genotype fraction `<= tree_max_missing` (default 0, as in the bash pipeline)
+2. write one FASTA row per strain plus one row for the reference; haploid calls give one base, diploid het calls give an IUPAC code, missing calls give `N`
+3. IQ-TREE 3 (`-st DNA`) with `tree_model` (default `GTR+ASC`), 1000 ultrafast bootstraps and 1000 SH-aLRT replicates. If `+ASC` stops on invariant columns, IQ-TREE writes `<pop>.snps.maf.varsites.phy` and the task reruns on it. IQ-TREE treats an IUPAC code as compatible with its bases, so a column that varies only by diploid het codes counts as invariant and is dropped.
+
+`--skip_tree` turns the step off.
+
 #### Outputs
 
 - `results/<pop>.qc.annotated.vcf.gz` (+ `.tbi`) — QC-filtered, annotated callset: all variant types, no MAF floor.
 - `results/<pop>.snps.maf.annotated.vcf.gz` (+ `.tbi`) — biallelic SNPs with the MAF floor, annotated (population structure, PCA, GWAS-type analyses).
 - `results/<pop>.filter_stats.tsv`, `results/<pop>.depth_threshold.txt` — records kept at each QC step, and the site-depth ceiling used.
+- `results/strain_tree/<pop>.snps.maf.mfa.gz`, `<pop>.snps.maf.alignment_stats.tsv` — SNP alignment and its site count.
+- `results/strain_tree/<pop>.snps.maf.treefile`, `.iqtree`, `.log` — IQ-TREE tree (Newick, UFBoot/SH-aLRT support), report, and log.
 - `results/gvcfs/<strain>.g.vcf.gz` (+ `.tbi`) — **per-strain GVCFs, retained.** Design spec §5 keeps these so new strains can be added and the population re-genotyped without recalling every existing strain from CRAM. They are copied out of `work/`, so they survive a scratch cleanup.
 - `results/ploidy_review.csv` and `results/ploidy_inference_all.csv` — the ploidy QC record. Ploidy inference runs on every strain in the full workflow too, so each production run leaves a diagnostic trail. Compare `ploidy_review.csv` against the `ploidy_overrides.csv` you supplied to spot ploidy drift.
 
@@ -104,6 +117,35 @@ strain to `--cram_dir` and `ploidy_overrides.csv` is therefore sufficient to get
 it into the `all` callset; no file needs to be kept in sync. The YAML is
 reserved for named sub-population slices (Phase 2); any `all` key in it is
 ignored.
+
+Named groups use the bash PopGenomics pipeline format. A flat map without the
+`Populations:` key also works:
+
+```yaml
+Populations:
+  rmuc_core:
+    - DBVPG_3044
+    - EXF_1510
+  hybrid_diploids:
+    - DBVPG_3045
+```
+
+Each group gets its own QC filter, SnpEff annotation, alignment and tree, named
+`<pop>.*`, or `<output_prefix>.<pop>.*` when `--output_prefix` is set (the bash
+pipeline's `$PREFIX.$POPNAME` naming). `--population_mode` sets how a group is
+built:
+
+- `subset` (default): VARIANT_QC_FILTER cuts the group from the `all` callset.
+  It recomputes depth, genotype masks, AC/AN/AF, missingness and MAF over the
+  group. GATK site annotations (QD, FS, SOR, MQ) and the hard-filter flags stay
+  as computed over all strains. This needs no extra joint genotyping.
+- `regenotype`: JOINT_GENOTYPING runs GenomicsDBImport and GenotypeGVCFs again
+  for each group from its GVCFs. All site annotations then come from the
+  group only, but each group costs a full joint-genotyping run.
+
+Strain names in the YAML match VCF sample `STRAIN` or `STRAIN_STRAIN` (the
+form Sarek CRAMs give). A strain with no match is skipped with a warning, and
+`<pop>.filter_stats.tsv` records `strains_requested` and `strains_in_vcf`.
 
 ### Parameters
 
@@ -124,6 +166,9 @@ ignored.
 - **snpeff_genome_name** (required for Phase 2 only): SnpEff genome database name (e.g., `RmucDH4148`).
 - **mask_bed** (optional, strongly recommended): BED of repeat and low-complexity intervals to exclude (for example RepeatMasker + dustmasker + TRF, merged). If unset the run warns and does no masking.
 - **qc_min_gq** (default 20), **qc_min_dp** (default 5), **qc_min_ab** (default 0.2), **qc_hap_min_af** (default 0.8), **qc_dp_max_factor** (default 2), **qc_max_missing** (default 0.1), **qc_min_maf** (default 0.05): VARIANT_QC_FILTER thresholds; see "Variant QC" above.
+- **population_mode** (default `subset`): `subset` or `regenotype`; see "Populations" above.
+- **output_prefix** (default none): if set, outputs are named `<output_prefix>.<pop>.*`.
+- **skip_tree** (default false), **tree_max_missing** (default 0), **tree_model** (default `GTR+ASC`), **tree_bootstraps** (default 1000; 0 turns off UFBoot and SH-aLRT, which need at least 4 sequences), **tree_ref_name** (default `reference`): strain tree settings; see "Strain tree" above.
 - **outdir** (default: `${launchDir}/results`, i.e. `results` relative to wherever you run `nextflow run` from): Output directory for results.
 
 ### SnpEff Database
@@ -169,7 +214,10 @@ the Phase 2 instructions above describe, runs the full default workflow, and
 then asserts on `results/all.qc.annotated.vcf.gz` and
 `results/all.snps.maf.annotated.vcf.gz` — record counts, `ANN=` on every
 record, only `PASS` records, no record in the fixture mask, no called genotype
-below the GQ/DP floors, the filter stats, both sample columns, and
+below the GQ/DP floors, the filter stats, the SNP alignment and the IQ-TREE
+treefile (bootstraps off: the fixture has only 3 sequences), both sample
+columns, the `test_subset` group cut from `all` (2 of its 3 listed strains are
+in the VCF), and
 (most importantly) that the haploid strain emits single-allele genotypes while
 the diploid strain emits two-allele genotypes at a shared site. Any failed
 assertion exits non-zero. It takes roughly 10-20 minutes, mostly SLURM queueing.

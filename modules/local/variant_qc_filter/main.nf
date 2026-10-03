@@ -5,7 +5,7 @@ process VARIANT_QC_FILTER {
     // Container (bcftools 1.24 with plugins) is declared in conf/modules.config.
 
     input:
-    tuple val(population), path(vcf), path(tbi)
+    tuple val(population), path(vcf), path(tbi), val(strains)  // strains: [] = every sample in the VCF
     path mask_bed   // repeat + low-complexity BED, or assets/NO_FILE to skip masking
 
     output:
@@ -18,6 +18,8 @@ process VARIANT_QC_FILTER {
     // bin/filter_population_vcf.sh for the full step list. Thresholds are
     // params so a population can be re-filtered without re-genotyping.
     def mask_arg = mask_bed.name == 'NO_FILE' ? '' : "-m ${mask_bed}"
+    def strains_cmd = strains ? "printf '%s\\n' ${strains.collect { "'${it}'" }.join(' ')} > strains.txt" : ''
+    def strains_arg = strains ? '--strains strains.txt' : ''
     // bin_dir and the PATH export follow modules/local/custom_het_ploidy: the
     // login shell (process.shell = bash -l) drops the image's conda env from
     // PATH, and projectDir has no bin/ under the tests/ entry points.
@@ -25,10 +27,12 @@ process VARIANT_QC_FILTER {
     """
     set -euo pipefail
     export PATH="/opt/conda/envs/bcftools_samtools/bin:\$PATH"
+    ${strains_cmd}
     ${bin_dir}/filter_population_vcf.sh \\
         -i "${vcf}" \\
         -o "${population}" \\
         ${mask_arg} \\
+        ${strains_arg} \\
         -t ${task.cpus} \\
         --min-gq ${params.qc_min_gq} \\
         --min-dp ${params.qc_min_dp} \\

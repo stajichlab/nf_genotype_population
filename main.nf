@@ -87,6 +87,10 @@ workflow {
         snpeff_genome_name: 'SnpEff genome name inside that database',
     ])
 
+    if (!(params.population_mode in ['subset', 'regenotype'])) {
+        error "--population_mode must be 'subset' or 'regenotype', not '${params.population_mode}'"
+    }
+
     cram_ch = buildCramCh()
 
     GENOTYPE_POPULATION(
@@ -126,6 +130,16 @@ workflow {
         outDir.mkdirs()
         stats.copyTo(outDir.resolve(stats.name))
         depth.copyTo(outDir.resolve(depth.name))
+    }
+    GENOTYPE_POPULATION.out.alignment.mix(GENOTYPE_POPULATION.out.alignment_stats).subscribe { population, f ->
+        def outDir = file("${params.outdir}/strain_tree")
+        outDir.mkdirs()
+        f.copyTo(outDir.resolve(f.name))
+    }
+    GENOTYPE_POPULATION.out.tree.subscribe { population, treefile, report, log ->
+        def outDir = file("${params.outdir}/strain_tree")
+        outDir.mkdirs()
+        [treefile, report, log].each { it.copyTo(outDir.resolve(it.name)) }
     }
 
     // FINAL-REVIEW I6: PLOIDY_INFERENCE always runs in the default workflow too
