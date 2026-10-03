@@ -87,6 +87,11 @@ workflow {
         snpeff_genome_name: 'SnpEff genome name inside that database',
     ])
 
+    // The alignment holds only variable SNP sites, so the tree model must
+    // correct for ascertainment bias (+ASC, as in the bash pipeline).
+    if (!params.skip_tree && !(params.tree_model ==~ /.*\+ASC.*/)) {
+        error "--tree_model '${params.tree_model}' has no +ASC. The SNP alignment has only variable sites, so the model needs an ascertainment-bias correction (for example GTR+ASC)."
+    }
     if (!(params.population_mode in ['subset', 'regenotype'])) {
         error "--population_mode must be 'subset' or 'regenotype', not '${params.population_mode}'"
     }

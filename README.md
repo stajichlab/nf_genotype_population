@@ -168,7 +168,7 @@ form Sarek CRAMs give). A strain with no match is skipped with a warning, and
 - **qc_min_gq** (default 20), **qc_min_dp** (default 5), **qc_min_ab** (default 0.2), **qc_hap_min_af** (default 0.8), **qc_dp_max_factor** (default 2), **qc_max_missing** (default 0.1), **qc_min_maf** (default 0.05): VARIANT_QC_FILTER thresholds; see "Variant QC" above.
 - **population_mode** (default `subset`): `subset` or `regenotype`; see "Populations" above.
 - **output_prefix** (default none): if set, outputs are named `<output_prefix>.<pop>.*`.
-- **skip_tree** (default false), **tree_max_missing** (default 0), **tree_model** (default `GTR+ASC`), **tree_bootstraps** (default 1000; 0 turns off UFBoot and SH-aLRT, which need at least 4 sequences), **tree_ref_name** (default `reference`): strain tree settings; see "Strain tree" above.
+- **skip_tree** (default false), **tree_max_missing** (default 0), **tree_model** (default `GTR+ASC`; must include `+ASC`, because the alignment has only variable sites), **tree_bootstraps** (default 1000; 0 turns off UFBoot and SH-aLRT, which need at least 4 sequences), **tree_ref_name** (default `reference`): strain tree settings; see "Strain tree" above.
 - **outdir** (default: `${launchDir}/results`, i.e. `results` relative to wherever you run `nextflow run` from): Output directory for results.
 
 ### SnpEff Database
