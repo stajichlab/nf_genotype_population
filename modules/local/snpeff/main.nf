@@ -36,10 +36,23 @@ process SNPEFF_ANNOTATE {
     // when addressed by their canonical absolute path (confirmed while
     // debugging the Task 12 smoke test). Resolve to an absolute, symlink-free
     // path with `readlink -f` before invoking snpEff.
+    //
+    // -XX:-UsePerfData: with two SNPEFF_ANNOTATE tasks on one node, the JVM
+    // printed "[warning][perf,memops] Cannot use file /tmp/hsperfdata_..." to
+    // STDOUT, which went through bgzip into the VCF as its first line
+    // (observed in the integration test). The bioconda wrapper passes -XX
+    // and -Xmx options to the JVM; its default heap is only -Xmx1g. The head
+    // check fails the task if anything other than a VCF header reaches the file.
+    def xmx = (task.memory.toGiga() * 0.8) as int
     """
     set -euo pipefail
     db_dir=\$(readlink -f "${snpeff_db_dir}")
-    snpEff -c "\${db_dir}/snpEff.config" -dataDir "\${db_dir}/data" "${snpeff_genome_name}" "${vcf}" | bgzip > "${population}.annotated.vcf.gz"
+    snpEff -Xmx${xmx}g -XX:-UsePerfData -c "\${db_dir}/snpEff.config" -dataDir "\${db_dir}/data" "${snpeff_genome_name}" "${vcf}" | bgzip > "${population}.annotated.vcf.gz"
+    first=\$(zcat "${population}.annotated.vcf.gz" | head -1 || true)
+    if [[ "\${first}" != "##fileformat=VCF"* ]]; then
+        echo "annotated VCF does not start with ##fileformat: \${first}" >&2
+        exit 1
+    fi
     tabix -p vcf "${population}.annotated.vcf.gz"
     """
 }

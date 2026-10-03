@@ -3,6 +3,7 @@ include { PLOIDY_INFERENCE }       from '../subworkflows/local/ploidy_inference/
 include { GATK4_HAPLOTYPECALLER }  from '../modules/local/gatk4_haplotypecaller/main.nf'
 include { JOINT_GENOTYPING }       from '../subworkflows/local/joint_genotyping/main.nf'
 include { GATK4_HARDFILTER }       from '../modules/local/gatk4_variantfiltration/main.nf'
+include { VARIANT_QC_FILTER }      from '../modules/local/variant_qc_filter/main.nf'
 include { SNPEFF_ANNOTATE }        from '../modules/local/snpeff/main.nf'
 
 def ploidyCodeFor(label) {
@@ -87,10 +88,24 @@ workflow GENOTYPE_POPULATION {
     )
 
     GATK4_HARDFILTER(JOINT_GENOTYPING.out.vcf_by_population, reference, reference_fai, reference_dict)
-    SNPEFF_ANNOTATE(GATK4_HARDFILTER.out.vcf, snpeff_db_dir, snpeff_genome_name)
+
+    // Genotype (GQ/DP/allele balance) and site (mask, depth ceiling,
+    // missingness, MAF) QC before annotation. Hard filters only flag sites;
+    // without this step every hard-filtered record, and every low-quality
+    // genotype, reached SnpEff and the published VCF.
+    if (!params.mask_bed) {
+        log.warn "--mask_bed not set: VARIANT_QC_FILTER will not drop repeat / low-complexity sites"
+    }
+    def mask_bed = params.mask_bed ? file(params.mask_bed, checkIfExists: true) : file("${projectDir}/assets/NO_FILE")
+    VARIANT_QC_FILTER(GATK4_HARDFILTER.out.vcf, mask_bed)
+
+    // Annotate both QC outputs: <pop>.qc (all variant types, no MAF floor) and
+    // <pop>.snps.maf (biallelic SNPs, MAF floor).
+    SNPEFF_ANNOTATE(VARIANT_QC_FILTER.out.qc.mix(VARIANT_QC_FILTER.out.snps), snpeff_db_dir, snpeff_genome_name)
 
     emit:
     annotated_vcf = SNPEFF_ANNOTATE.out.vcf
+    filter_stats  = VARIANT_QC_FILTER.out.stats
     // FINAL-REVIEW I6: PLOIDY_INFERENCE runs on every strain in the production
     // workflow (a deliberate QC side effect), but neither of its outputs was
     // emitted, so ~278 CUSTOM_HET_PLOIDY jobs per run produced nothing any

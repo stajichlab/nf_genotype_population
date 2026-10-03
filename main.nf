@@ -121,6 +121,12 @@ workflow {
         vcf.copyTo(outDir.resolve(vcf.name))
         tbi.copyTo(outDir.resolve(tbi.name))
     }
+    GENOTYPE_POPULATION.out.filter_stats.subscribe { population, stats, depth ->
+        def outDir = file(params.outdir)
+        outDir.mkdirs()
+        stats.copyTo(outDir.resolve(stats.name))
+        depth.copyTo(outDir.resolve(depth.name))
+    }
 
     // FINAL-REVIEW I6: PLOIDY_INFERENCE always runs in the default workflow too
     // (a deliberate QC side effect, kept as-is), but its outputs were previously
