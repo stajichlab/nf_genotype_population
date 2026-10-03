@@ -15,7 +15,7 @@ process SNPEFF_ANNOTATE {
     val snpeff_genome_name
 
     output:
-    tuple val(population), path("${population}.annotated.vcf.gz"), emit: vcf
+    tuple val(population), path("${population}.annotated.vcf.gz"), path("${population}.annotated.vcf.gz.tbi"), emit: vcf
 
     script:
     // snpeff_db_dir is the database root as built per conf/snpeff.config's

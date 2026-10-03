@@ -32,7 +32,10 @@ workflow {
 
     SNPEFF_ANNOTATE.out.vcf.view()
 
-    SNPEFF_ANNOTATE.out.vcf.subscribe { population, annotated ->
+    SNPEFF_ANNOTATE.out.vcf.subscribe { population, annotated, annotated_tbi ->
+        if (!annotated_tbi.exists() || annotated_tbi.size() == 0) {
+            error "annotated VCF index ${annotated_tbi.name} missing or empty"
+        }
         def lines = gunzip(annotated).readLines()
         def records = lines.findAll { !it.startsWith('#') }
         if (records.isEmpty()) {
