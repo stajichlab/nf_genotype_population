@@ -90,6 +90,17 @@ nextflow run main.nf -profile hpcc \
     --mask_bed /path/to/mask.bed
 ```
 
+#### CRAM inputs
+
+GATK 4.5 (htsjdk) can read only CRAM 3.0. samtools 1.15 and later write CRAM 3.1 by default, for example from `samtools merge` or `samtools view -C`. A 3.1 file fails only when HaplotypeCaller reaches it ("CRAM version 3.1 is not supported").
+
+`PREPARE_CRAMS` runs in both entry workflows and protects against this:
+- It reads the version from the first 6 bytes of each CRAM.
+- CRAM 3.0 files pass through unchanged.
+- Any other version is rewritten as 3.0 by `CRAM_TO_V30`. That step checks that the record count is unchanged and logs a warning.
+
+To avoid the conversion entirely, write CRAM 3.0 when building inputs by hand: `samtools view -C --output-fmt-option version=3.0`.
+
 #### Variant QC
 
 `VARIANT_QC_FILTER` (`bin/filter_population_vcf.sh`) runs between GATK hard
@@ -237,7 +248,7 @@ then asserts on `results/all.qc.annotated.vcf.gz` and
 record, only `PASS` records, no record in the fixture mask, no called genotype
 below the GQ/DP floors, the filter stats, the SNP alignment and the IQ-TREE
 treefile (bootstraps off: the fixture has only 3 sequences), both sample
-columns, the `test_subset` group cut from `all` (2 of its 3 listed strains are
+columns, a CRAM 3.1 input rewritten by `CRAM_TO_V30`, the `test_subset` group cut from `all` (2 of its 3 listed strains are
 in the VCF), and
 (most importantly) that the haploid strain emits single-allele genotypes while
 the diploid strain emits two-allele genotypes at a shared site. Any failed

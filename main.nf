@@ -3,6 +3,7 @@ nextflow.enable.dsl = 2
 
 include { GENOTYPE_POPULATION } from './workflows/genotype_population.nf'
 include { PLOIDY_INFERENCE }    from './subworkflows/local/ploidy_inference/main.nf'
+include { PREPARE_CRAMS }       from './subworkflows/local/prepare_crams/main.nf'
 
 // CORRECTION 2 (Task 13 binding ruling): Channel.fromFilePairs("*.{cram,cram.crai}", ...)
 // does not correctly pair X.cram with X.cram.crai (the {a,b} form in
@@ -54,7 +55,9 @@ workflow PLOIDY_ONLY {
         metadata     : 'metadata.txt (strain -> ploidy, for the AGREE/DISAGREE crosscheck)',
     ])
 
-    cram_ch = buildCramCh()
+    // GATK 4.5 reads only CRAM 3.0; rewrite any other CRAM version first.
+    PREPARE_CRAMS(buildCramCh(), file(params.reference), file(params.reference_fai))
+    cram_ch = PREPARE_CRAMS.out.cram
 
     PLOIDY_INFERENCE(
         cram_ch,
@@ -96,7 +99,9 @@ workflow {
         error "--population_mode must be 'subset' or 'regenotype', not '${params.population_mode}'"
     }
 
-    cram_ch = buildCramCh()
+    // GATK 4.5 reads only CRAM 3.0; rewrite any other CRAM version first.
+    PREPARE_CRAMS(buildCramCh(), file(params.reference), file(params.reference_fai))
+    cram_ch = PREPARE_CRAMS.out.cram
 
     GENOTYPE_POPULATION(
         cram_ch,
