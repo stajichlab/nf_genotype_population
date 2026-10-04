@@ -20,7 +20,8 @@
 #   5. runs the full default workflow
 #   6. asserts on results/all.qc.annotated.vcf.gz and
 #      results/all.snps.maf.annotated.vcf.gz (VARIANT_QC_FILTER outputs), the
-#      filter stats, the published GVCFs, and the published ploidy QC record
+#      filter stats, the strain-tree alignment and tree, the published GVCFs,
+#      and the published ploidy QC record (tree bootstraps are off: 3 sequences)
 #
 # Every assertion failure exits non-zero. Expect roughly 10-20 minutes, mostly
 # SLURM queueing behind other jobs on this account.
@@ -42,9 +43,11 @@ SCRATCH_DIR="${REPO_ROOT}/.integration_test"
 CRAM_DIR="${SCRATCH_DIR}/cram"
 DB_DIR="${SCRATCH_DIR}/snpeff_db"
 OUTDIR="${SCRATCH_DIR}/results"
+RUN_LOG="${SCRATCH_DIR}/full_workflow.log"
 OVERRIDES="${SCRATCH_DIR}/ploidy_overrides.csv"
 GENOME="synth_genome"
 
+SAMTOOLS_CONTAINER="${SAMTOOLS_CONTAINER:-/bigdata/stajichlab/shared/singularity_cache/bcftools_samtools-1.24.sif}"
 SNPEFF_CONTAINER="${SNPEFF_CONTAINER:-/bigdata/stajichlab/shared/singularity_cache/depot.galaxyproject.org-singularity-mulled-v2-2fe536b56916bd1d61a6a1889eb2987d9ea0cd2f-c51b2e46bf63786b2d9a7a7d23680791163ab39a-0.img}"
 
 FAILURES=0
@@ -64,10 +67,20 @@ cleanup_previous() {
 
 build_cram_dir() {
     section "Building throwaway flat CRAM directory"
-    for strain in haploid_strain diploid_strain; do
-        cp "${FIXTURES}/${strain}.cram"      "${CRAM_DIR}/${strain}.cram"
-        cp "${FIXTURES}/${strain}.cram.crai" "${CRAM_DIR}/${strain}.cram.crai"
-    done
+    cp "${FIXTURES}/diploid_strain.cram"      "${CRAM_DIR}/diploid_strain.cram"
+    cp "${FIXTURES}/diploid_strain.cram.crai" "${CRAM_DIR}/diploid_strain.cram.crai"
+    # Write the haploid fixture as CRAM 3.1 (samtools >= 1.15 default), which
+    # GATK 4.5 cannot read: PREPARE_CRAMS must rewrite it as 3.0 (CRAM_TO_V30).
+    module load singularity 2>/dev/null || true
+    singularity exec -B "${FIXTURES},${CRAM_DIR}" "${SAMTOOLS_CONTAINER}" bash -c "
+        export PATH=/opt/conda/envs/bcftools_samtools/bin:\$PATH
+        samtools view -C --output-fmt-option version=3.1 -T '${FIXTURES}/ref.fa' \
+            -o '${CRAM_DIR}/haploid_strain.cram' '${FIXTURES}/haploid_strain.cram'
+        samtools index '${CRAM_DIR}/haploid_strain.cram'"
+    local v
+    v=$(head -c 6 "${CRAM_DIR}/haploid_strain.cram" | tail -c 2 | od -An -tu1 | tr -s ' ')
+    [[ "${v}" == " 3 1" ]] || { echo "  FAIL: could not make a CRAM 3.1 fixture (got '${v}')" >&2; exit 1; }
+    echo "haploid_strain.cram written as CRAM 3.1 to exercise CRAM_TO_V30"
     ls -1 "${CRAM_DIR}"
 }
 
@@ -132,7 +145,8 @@ run_full_workflow() {
         --snpeff_db_dir      "${DB_DIR}" \
         --snpeff_genome_name "${GENOME}" \
         --mask_bed           "${FIXTURES}/mask_fixture.bed" \
-        --outdir             "${OUTDIR}"
+        --tree_bootstraps    0 \
+        --outdir             "${OUTDIR}" | tee "${RUN_LOG}"
 }
 
 assert_outputs() {
@@ -216,6 +230,43 @@ assert_outputs() {
         pass "biallelic SNP set published with index, 22 records"
     else
         fail "biallelic SNP set: ${n_snps} records (expected 22) or index missing"
+    fi
+
+    # ---- CRAM 3.1 input rewritten for GATK (PREPARE_CRAMS / CRAM_TO_V30) -----
+    if grep -q "CRAM_TO_V30 (haploid_strain)" "${RUN_LOG}" && ! grep -q "CRAM_TO_V30 (diploid_strain)" "${RUN_LOG}"; then
+        pass "CRAM 3.1 input (haploid_strain) rewritten by CRAM_TO_V30; CRAM 3.0 input (diploid_strain) passed through"
+    else
+        fail "CRAM_TO_V30 did not run for haploid_strain only: $(grep CRAM_TO_V30 "${RUN_LOG}" | tr '\n' ' ')"
+    fi
+
+    # ---- population subset (population_mode subset) -------------------------
+    local sub="${OUTDIR}/test_subset.snps.maf.annotated.vcf.gz"
+    local sub_n sub_samples
+    sub_n=$(zcat "${sub}" 2>/dev/null | grep -vc '^#' || true)
+    sub_samples=$(zcat "${sub}" 2>/dev/null | grep -m1 '^#CHROM' | cut -f10- | tr '\t' ' ')
+    if [[ "${sub_n}" -eq "${n_snps}" && "${sub_samples}" == "diploid_strain haploid_strain" ]] \
+        && awk -F'\t' '$1=="strains_requested"{r=$2} $1=="strains_in_vcf"{v=$2} END{exit !(r==3 && v==2)}' "${OUTDIR}/test_subset.filter_stats.tsv"; then
+        pass "test_subset cut from 'all': 2 of 3 listed strains in the VCF, ${sub_n} SNPs (same as all)"
+    else
+        fail "test_subset: ${sub_n} SNPs (all has ${n_snps}), samples '${sub_samples}', stats: $(tr '\n' ' ' < "${OUTDIR}/test_subset.filter_stats.tsv" 2>/dev/null)"
+    fi
+
+    # ---- strain tree (SNP_ALIGNMENT + IQTREE) -------------------------------
+    local tdir="${OUTDIR}/strain_tree"
+    local aln_ok
+    aln_ok=$( (zcat "${tdir}/all.snps.maf.mfa.gz" 2>/dev/null || true) | awk '
+        /^>/ {n++; next} {len[length($0)]++; if ($0 !~ /^[ACGTRYSWKMN]+$/) bad++}
+        END {k=0; for (l in len) {k++; L=l}; print (n==3 && k==1 && L>0 && !bad) ? "ok" : "bad n="n" lens="k" badrows="bad}')
+    if [[ "${aln_ok}" == "ok" ]] && awk -F'\t' 'NR==2{exit !($2==2 && $3>0)}' "${tdir}/all.snps.maf.alignment_stats.tsv"; then
+        pass "SNP alignment published: reference + 2 strains, equal-length rows, $(awk -F'\t' 'NR==2{print $3}' "${tdir}/all.snps.maf.alignment_stats.tsv") sites"
+    else
+        fail "SNP alignment: ${aln_ok}; stats: $(tr '\n' ' ' < "${tdir}/all.snps.maf.alignment_stats.tsv" 2>/dev/null)"
+    fi
+    if [[ -s "${tdir}/all.snps.maf.treefile" ]] && grep -q haploid_strain "${tdir}/all.snps.maf.treefile" \
+        && grep -q diploid_strain "${tdir}/all.snps.maf.treefile" && grep -q reference "${tdir}/all.snps.maf.treefile"; then
+        pass "IQ-TREE treefile published with all 3 taxa: $(cat "${tdir}/all.snps.maf.treefile")"
+    else
+        fail "IQ-TREE treefile missing or incomplete"
     fi
 
     # ---- both sample columns present --------------------------------------

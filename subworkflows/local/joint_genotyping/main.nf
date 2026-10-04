@@ -14,7 +14,10 @@ workflow JOINT_GENOTYPING {
     main:
     // snakeyaml verified working under this project's Nextflow version
     // (26.04.6) inside a DSL2 workflow block: see task-10-report.md.
-    def yaml_groups = (new org.yaml.snakeyaml.Yaml().load(population_sets_yaml.text) ?: [:])
+    def yaml_raw = (new org.yaml.snakeyaml.Yaml().load(population_sets_yaml.text) ?: [:])
+    // The bash PopGenomics pipeline nests the groups under a top-level
+    // `Populations:` key; accept that format and the flat one.
+    def yaml_groups = yaml_raw.containsKey('Populations') ? (yaml_raw.Populations ?: [:]) : yaml_raw
 
     // FINAL-REVIEW C1: the `all` population is NO LONGER read from the YAML.
     //
@@ -31,7 +34,11 @@ workflow JOINT_GENOTYPING {
     // The YAML is retained ONLY for named sub-population slices (a Phase 2
     // concept; today the file holds just the legacy `all` placeholder key,
     // which is deliberately ignored here).
-    def sub_populations = yaml_groups.findAll { name, strains -> name != 'all' }
+    // Named groups are joint-genotyped separately only in
+    // --population_mode regenotype. In the default 'subset' mode,
+    // workflows/genotype_population.nf cuts them from the `all` callset in
+    // VARIANT_QC_FILTER instead.
+    def sub_populations = params.population_mode == 'regenotype' ? yaml_groups.findAll { name, strains -> name != 'all' } : [:]
     if (yaml_groups.containsKey('all')) {
         log.info "population_sets YAML contains an 'all' key; it is ignored. The 'all' population is derived at runtime from every strain that produced a GVCF in this run (spec §2)."
     }

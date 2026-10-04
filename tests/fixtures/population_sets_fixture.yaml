@@ -1,3 +1,11 @@
-all:
-  - haploid_strain
-  - diploid_strain
+# bash-pipeline format (top-level Populations:). The 'all' key is ignored:
+# the pipeline builds 'all' from every genotyped strain. test_subset exercises
+# --population_mode subset (cut from the 'all' callset in VARIANT_QC_FILTER).
+Populations:
+  all:
+    - haploid_strain
+    - diploid_strain
+  test_subset:
+    - haploid_strain
+    - diploid_strain
+    - strain_not_genotyped

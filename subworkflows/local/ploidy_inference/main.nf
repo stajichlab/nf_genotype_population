@@ -26,7 +26,10 @@ workflow PLOIDY_INFERENCE {
     // was needed there either.
     def ploidy_method = params.ploidy_method ?: 'custom_het_script'
     if (ploidy_method == 'custom_het_script') {
-        CUSTOM_HET_PLOIDY(cram_ch, reference, reference_fai)
+        // Same repeat mask as VARIANT_QC_FILTER: repeats are the main source of
+        // noise hets in haploids.
+        def mask_bed = params.mask_bed ? file(params.mask_bed, checkIfExists: true) : file("${projectDir}/assets/NO_FILE")
+        CUSTOM_HET_PLOIDY(cram_ch, reference, reference_fai, mask_bed)
         ploidy_csv_ch = CUSTOM_HET_PLOIDY.out.csv
     } else if (ploidy_method == 'nquire') {
         NQUIRE(cram_ch, reference, reference_fai)

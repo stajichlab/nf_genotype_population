@@ -5,7 +5,8 @@
 # Runs after GATK4_HARDFILTER and before SNPEFF_ANNOTATE.
 #
 # Steps (counts of records after every step go to <prefix>.filter_stats.tsv):
-#   1. optional sample subset (-S); keep FILTER=PASS sites (GATK hard
+#   1. optional sample subset (-S VCF sample names, or --strains strain names;
+#      a strain matches sample STRAIN or STRAIN_STRAIN); keep FILTER=PASS sites (GATK hard
 #      filters); recompute INFO/DP as the sum of FORMAT/DP over the kept samples
 #   2. drop sites whose REF span overlaps the repeat / low-complexity mask BED
 #   3. drop sites with INFO/DP > DP_MAX_FACTOR x median INFO/DP (collapsed
@@ -28,7 +29,7 @@
 #   -> <prefix>.snps.maf.vcf.gz    population-genetics SNP set
 #
 # Usage:
-#   filter_population_vcf.sh -i in.vcf.gz -o prefix [-m mask.bed] [-S samples.txt] [-t threads]
+#   filter_population_vcf.sh -i in.vcf.gz -o prefix [-m mask.bed] [-S samples.txt | --strains strains.txt] [-t threads]
 #     [--min-gq 20] [--min-dp 5] [--min-ab 0.2] [--hap-min-af 0.8]
 #     [--dp-max-factor 2] [--max-missing 0.1] [--min-maf 0.05]
 set -euo pipefail
@@ -43,6 +44,7 @@ MIN_MAF=0.05
 THREADS=1
 MASK=""
 SAMPLES=""
+STRAINS=""
 IN=""
 PREFIX=""
 
@@ -52,6 +54,7 @@ while [[ $# -gt 0 ]]; do
         -o) PREFIX=$2; shift 2 ;;
         -m) MASK=$2; shift 2 ;;
         -S) SAMPLES=$2; shift 2 ;;
+        --strains) STRAINS=$2; shift 2 ;;
         -t) THREADS=$2; shift 2 ;;
         --min-gq) MIN_GQ=$2; shift 2 ;;
         --min-dp) MIN_DP=$2; shift 2 ;;
@@ -64,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ -n "$IN" && -n "$PREFIX" ]] || { echo "need -i and -o" >&2; exit 2; }
+[[ -n "$SAMPLES" && -n "$STRAINS" ]] && { echo "use -S or --strains, not both" >&2; exit 2; }
 
 TMP="${SCRATCH:-$PWD}/filter_tmp.$$"
 mkdir -p "$TMP"
@@ -71,6 +75,20 @@ trap 'rm -rf "$TMP"' EXIT
 STATS="${PREFIX}.filter_stats.tsv"
 printf "step\trecords\n" > "$STATS"
 count() { printf "%s\t%s\n" "$1" "$(bcftools index -n "$2")" >> "$STATS"; }
+
+# Strain names -> VCF sample names. Sarek-derived CRAMs give sample STRAIN_STRAIN.
+if [[ -n "$STRAINS" ]]; then
+    bcftools query -l "$IN" > "$TMP/vcf_samples.txt"
+    awk -v miss="$TMP/missing.txt" 'NR==FNR {s[$1]=1; next}
+        NF { if ($1 in s) print $1; else if (($1 "_" $1) in s) print $1 "_" $1; else print $1 > miss }' \
+        "$TMP/vcf_samples.txt" "$STRAINS" | sort -u > "$TMP/samples.txt"
+    if [[ -s "$TMP/missing.txt" ]]; then
+        echo "WARNING: $(wc -l < "$TMP/missing.txt") strain(s) not in the VCF, skipped: $(tr '\n' ' ' < "$TMP/missing.txt")" >&2
+    fi
+    [[ -s "$TMP/samples.txt" ]] || { echo "no strain from ${STRAINS} is in the VCF" >&2; exit 1; }
+    printf "strains_requested\t%s\nstrains_in_vcf\t%s\n" "$(grep -c . "$STRAINS")" "$(wc -l < "$TMP/samples.txt")" >> "$STATS"
+    SAMPLES="$TMP/samples.txt"
+fi
 
 printf "input\t%s\n" "$(bcftools view -H "$IN" | wc -l)" >> "$STATS"
 
