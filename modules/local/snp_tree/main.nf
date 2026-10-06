@@ -52,7 +52,7 @@ process IQTREE {
     gzip -dc "${aln}" > "${population}.mfa"
     run_iq() {
         iqtree3 -s "\$1" -st DNA --prefix "${population}" -m "${params.tree_model}" \\
-            ${boot} \\
+            ${boot} -keep-ident \\
             -T ${task.cpus} --seed 12345 -redo
     }
     # +ASC stops if a column is invariant. IQ-TREE treats an IUPAC code as
@@ -60,6 +60,8 @@ process IQTREE {
     # codes (for example A and R) counts as invariant. IQ-TREE then writes
     # <prefix>.varsites.phy with the variable columns only; rerun on that file.
     # -st DNA is required: IQ-TREE cannot detect the type of that PHYLIP file.
+    # -keep-ident is required: without it IQ-TREE collapses identical sequences
+    # before it writes varsites.phy, and the rerun drops those strains from the tree.
     if ! run_iq "${population}.mfa"; then
         [[ -s "${population}.varsites.phy" ]] || exit 1
         run_iq "${population}.varsites.phy"

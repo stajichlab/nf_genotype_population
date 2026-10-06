@@ -109,7 +109,7 @@ removes them and filters genotypes. In order:
 
 1. keep `FILTER=PASS`; drop sites that overlap `--mask_bed` (repeats, low complexity)
 2. drop sites with summed `FORMAT/DP` > `qc_dp_max_factor` x the median site depth
-3. set genotypes to missing where `GQ < qc_min_gq` or `DP < qc_min_dp`
+3. set genotypes to missing where `GQ < qc_min_gq`; or where `DP < qc_min_dp` for a genotype with an ALT allele; or where `DP < qc_min_dp_homref` for a hom-ref genotype (default 0 = no depth mask on hom-ref calls)
 4. set het genotypes to missing where one allele has more than `1 - qc_min_ab` of the allelic reads
 5. set haploid / homozygous genotypes to missing where no allele has at least `qc_hap_min_af` of the reads
 6. drop ALT alleles no genotype still carries and sites left monomorphic; recompute AC/AN/AF/MAF/F_MISSING
@@ -118,6 +118,15 @@ removes them and filters genotypes. In order:
 
 The record count after each step is written to `<pop>.filter_stats.tsv`.
 
+Why hom-ref calls have their own depth threshold: GenotypeGVCFs gives a hom-ref
+genotype the `FORMAT/DP` of its gVCF reference block, which is the block
+`MIN_DP`, not the read depth at the site. A long reference block often has a
+low `MIN_DP` even when the strain has good coverage. With `DP < 5` applied to all
+genotypes (the rule before 2026-10-05), strains close to the reference lost
+40-89 % of their hom-ref calls at 16-28x mosdepth coverage, while their ALT calls
+were almost never below DP 5. `GQ < qc_min_gq` still masks weak hom-ref calls.
+Set `qc_min_dp_homref = 5` to get the old behaviour.
+
 #### Strain tree
 
 SNP_ALIGNMENT and IQTREE port `06_make_SNP_tree.sh` and `07_iqtree.sh` from the
@@ -125,7 +134,7 @@ bash PopGenomics pipeline. They run on `<pop>.snps.maf`:
 
 1. keep sites with a missing-genotype fraction `<= tree_max_missing` (default 0, as in the bash pipeline)
 2. write one FASTA row per strain plus one row for the reference; haploid calls give one base, diploid het calls give an IUPAC code, missing calls give `N`
-3. IQ-TREE 3 (`-st DNA`) with `tree_model` (default `GTR+ASC`), 1000 ultrafast bootstraps and 1000 SH-aLRT replicates. If `+ASC` stops on invariant columns, IQ-TREE writes `<pop>.snps.maf.varsites.phy` and the task reruns on it. IQ-TREE treats an IUPAC code as compatible with its bases, so a column that varies only by diploid het codes counts as invariant and is dropped.
+3. IQ-TREE 3 (`-st DNA`) with `tree_model` (default `GTR+ASC`), 1000 ultrafast bootstraps and 1000 SH-aLRT replicates. If `+ASC` stops on invariant columns, IQ-TREE writes `<pop>.snps.maf.varsites.phy` and the task reruns on it. Both runs use `-keep-ident`. Without it, IQ-TREE collapses identical sequences before it writes `varsites.phy`, and the rerun tree loses those strains (before 2026-10-05, 206 of 280 strains in one tree). IQ-TREE treats an IUPAC code as compatible with its bases, so a column that varies only by diploid het codes counts as invariant and is dropped.
 
 `--skip_tree` turns the step off.
 

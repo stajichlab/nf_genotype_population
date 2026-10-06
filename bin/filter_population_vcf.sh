@@ -11,9 +11,14 @@
 #   2. drop sites whose REF span overlaps the repeat / low-complexity mask BED
 #   3. drop sites with INFO/DP > DP_MAX_FACTOR x median INFO/DP (collapsed
 #      repeats / CNV)
-#   4. set genotypes to missing where FORMAT/GQ < MIN_GQ or FORMAT/DP < MIN_DP
-#      (GATK genotype-level filters, then --set-filtered-gt-to-nocall
-#      equivalent)
+#   4. set genotypes to missing where FORMAT/GQ < MIN_GQ, or FORMAT/DP < MIN_DP
+#      for a genotype that carries an ALT allele, or FORMAT/DP < MIN_DP_HOMREF
+#      for a hom-ref genotype (GATK genotype-level filters, then
+#      --set-filtered-gt-to-nocall equivalent). Hom-ref genotypes have their own
+#      DP threshold (default 0 = no DP mask) because GenotypeGVCFs takes their
+#      FORMAT/DP from the gVCF reference block, which is the block MIN_DP, not
+#      the depth at the site. A DP mask on that value removes most hom-ref calls
+#      of strains close to the reference. GQ < MIN_GQ still applies to them.
 #   5. set heterozygous genotypes to missing where one allele carries more than
 #      1-MIN_AB of the allelic reads (for a biallelic site: AB < MIN_AB or
 #      AB > 1-MIN_AB). smpl_max/smpl_sum over FORMAT/AD works for any number of
@@ -30,12 +35,13 @@
 #
 # Usage:
 #   filter_population_vcf.sh -i in.vcf.gz -o prefix [-m mask.bed] [-S samples.txt | --strains strains.txt] [-t threads]
-#     [--min-gq 20] [--min-dp 5] [--min-ab 0.2] [--hap-min-af 0.8]
+#     [--min-gq 20] [--min-dp 5] [--min-dp-homref 0] [--min-ab 0.2] [--hap-min-af 0.8]
 #     [--dp-max-factor 2] [--max-missing 0.1] [--min-maf 0.05]
 set -euo pipefail
 
 MIN_GQ=20
 MIN_DP=5
+MIN_DP_HOMREF=0
 MIN_AB=0.2
 HAP_MIN_AF=0.8
 DP_MAX_FACTOR=2
@@ -58,6 +64,7 @@ while [[ $# -gt 0 ]]; do
         -t) THREADS=$2; shift 2 ;;
         --min-gq) MIN_GQ=$2; shift 2 ;;
         --min-dp) MIN_DP=$2; shift 2 ;;
+        --min-dp-homref) MIN_DP_HOMREF=$2; shift 2 ;;
         --min-ab) MIN_AB=$2; shift 2 ;;
         --hap-min-af) HAP_MIN_AF=$2; shift 2 ;;
         --dp-max-factor) DP_MAX_FACTOR=$2; shift 2 ;;
@@ -113,7 +120,8 @@ printf "median_INFO_DP=%s\tDP_MAX=%s\n" "$MEDIAN_DP" "$DP_MAX" > "${PREFIX}.dept
 
 # 3-6. depth ceiling, then genotype masking
 bcftools view --threads "$THREADS" -e "INFO/DP > ${DP_MAX}" -Ou "$TMP/s1.bcf" \
-  | bcftools +setGT -Ou -- -t q -n . -i "FMT/GQ<${MIN_GQ} | FMT/DP<${MIN_DP}" \
+  | bcftools +setGT -Ou -- -t q -n . \
+        -i "FMT/GQ<${MIN_GQ} | (FMT/DP<${MIN_DP} & GT!=\"ref\") | (FMT/DP<${MIN_DP_HOMREF} & GT=\"ref\")" \
   | bcftools +setGT -Ou -- -t q -n . \
         -i "GT=\"het\" & smpl_sum(FMT/AD)>0 & smpl_max(FMT/AD)/smpl_sum(FMT/AD) > (1-${MIN_AB})" \
   | bcftools +setGT -Ou -- -t q -n . \

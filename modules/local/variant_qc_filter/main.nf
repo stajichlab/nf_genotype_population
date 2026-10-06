@@ -36,6 +36,7 @@ process VARIANT_QC_FILTER {
         -t ${task.cpus} \\
         --min-gq ${params.qc_min_gq} \\
         --min-dp ${params.qc_min_dp} \\
+        --min-dp-homref ${params.qc_min_dp_homref} \\
         --min-ab ${params.qc_min_ab} \\
         --hap-min-af ${params.qc_hap_min_af} \\
         --dp-max-factor ${params.qc_dp_max_factor} \\
